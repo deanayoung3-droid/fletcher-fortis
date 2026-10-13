@@ -1,0 +1,30 @@
+# HAND-TUNED overrides (merged into sites.yaml by test/build_sites.py)
+# search_url placeholders: {first} {last} {city} {state} (slug-cased), {first_q} {last_q} {city_q} (URL-encoded, for query strings). selectors are best-effort and WILL drift; maintain here.
+# captcha: true => scans may be blocked and opt-out goes to the needs-human queue.
+sites:
+  - {id: truepeoplesearch, name: TruePeopleSearch, search_url: "https://www.truepeoplesearch.com/results?name={first}%20{last}&citystatezip={city_q}%2C%20{state}", card: ".card-summary", optout: {type: form, url: "https://www.truepeoplesearch.com/removal", captcha: true}}
+  - {id: fastpeoplesearch, name: FastPeopleSearch, search_url: "https://www.fastpeoplesearch.com/name/{first}-{last}_{city}-{state}", card: ".card", optout: {type: form, url: "https://www.fastpeoplesearch.com/removal", captcha: true}}
+  - {id: usphonebook, name: USPhonebook, search_url: "https://www.usphonebook.com/{first}-{last}/{state}/{city}", card: ".ls_contacts-people-finder-wrapper", optout: {type: form, url: "https://www.usphonebook.com/removal", captcha: true}}
+  - {id: thatsthem, name: ThatsThem, search_url: "https://thatsthem.com/name/{first}-{last}/{city}-{state}", card: ".record", optout: {type: form, url: "https://thatsthem.com/optout", captcha: true}}
+  - {id: searchpeoplefree, name: SearchPeopleFree, search_url: "https://www.searchpeoplefree.com/find/{first}-{last}/{state}/{city}", card: "li.toc", optout: {type: form, url: "https://www.searchpeoplefree.com/opt-out", captcha: true}}
+  - {id: familytreenow, name: FamilyTreeNow, search_url: "https://www.familytreenow.com/search/genealogy/results?first={first}&last={last}&citystatezip={city_q}%2C{state}", card: ".card", optout: {type: form, url: "https://www.familytreenow.com/optout", captcha: true}}
+  - {id: advancedbackgroundchecks, name: AdvancedBackgroundChecks, search_url: "https://www.advancedbackgroundchecks.com/names/{first}-{last}_{city}-{state}", card: ".card-block", optout: {type: form, url: "https://www.advancedbackgroundchecks.com/removal", captcha: true}}
+  - {id: neighborwho, name: NeighborWho, search_url: null, card: null, optout: {type: form, url: "https://www.beenverified.com/app/optout/search", captcha: true}, note: "LTVCo/BeenVerified data; no public search page"}
+  - {id: publicrecordsnow, name: PublicRecordsNow, search_url: "https://www.publicrecordsnow.com/name/{first}+{last}/{state}/{city}", card: ".card", optout: {type: form, url: "https://www.publicrecordsnow.com/static/view/optout/", captcha: true}, note: "privacy@ domain has no MX; data from PeopleFinders"}
+  - {id: addresses, name: Addresses.com, search_url: null, card: null, optout: {type: form, url: "https://suppression.peopleconnect.us/?brand=Intelius", captcha: false}, note: "addresses.com now redirects to Intelius; privacy@ has no MX"}
+  - {id: publicrecords360, name: PublicRecords360, search_url: null, card: null, optout: {type: email, to: "privacy@publicrecords360.com"}}
+  - {id: pipl, name: Pipl, search_url: null, card: null, optout: {type: email, to: "privacy@pipl.com"}}
+  - {id: idtrue, name: IDTrue, search_url: "https://www.idtrue.com/people/{first}-{last}/", card: ".person", optout: {type: form, url: "https://www.idtrue.com/optout", captcha: true}}
+  - {id: veromi, name: Veromi, search_url: null, card: null, optout: {type: form, url: "https://www.veromi.net/optout", captcha: true}}
+  - {id: centeda, name: Centeda, search_url: null, card: null, optout: {type: form, url: "https://centeda.com/optout", captcha: true}}
+  - {id: lexisnexis, name: LexisNexis, search_url: null, card: null, optout: {type: form, url: "https://optout.lexisnexis.com/", captcha: false}}
+  - {id: checkr, name: Checkr, search_url: null, card: null, optout: {type: email, to: "privacy@checkr.com"}}
+  - {id: goodhire, name: GoodHire, search_url: null, card: null, optout: {type: email, to: "privacy@goodhire.com"}}
+  - {id: sterling, name: Sterling, search_url: null, card: null, optout: {type: email, to: "privacy@sterlingcheck.com"}}
+  - {id: hireright, name: HireRight, search_url: null, card: null, optout: {type: email, to: "privacy@hireright.com"}}
+  # known/already handled (scan-only for reappearance monitoring; opt-outs are tracked manually):
+  - {id: spokeo, name: Spokeo, search_url: "https://www.spokeo.com/{first}-{last}/California/{city}", card: ".search-result", monitor_only: true}
+  - {id: radaris, name: Radaris, search_url: null, card: null, monitor_only: true, note: "radaris.com shows: domain transferred by court order (Oct 2026)"}
+  - {id: whitepages, name: Whitepages, search_url: "https://www.whitepages.com/name/{first}-{last}/{city}-{state}", card: "[data-qa-selector=serp-card]", monitor_only: true}
+  - {id: nuwber, name: Nuwber, search_url: "https://nuwber.com/search?name={first}%20{last}&city={city_q}&state={state}", card: ".person-item", monitor_only: true}
+  - {id: clustrmaps, name: ClustrMaps, search_url: "https://clustrmaps.com/persons/{first}-{last}", card: ".person", monitor_only: true}

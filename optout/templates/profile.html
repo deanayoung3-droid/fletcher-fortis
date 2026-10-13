@@ -1,0 +1,48 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, avatar, pill, label with context %}{% block title %}Profile · {{p.full_name}}{% endblock %}{% block body %}
+{% macro row_name(n) %}<div data-row class="grid grid-cols-12 gap-2 items-center">
+ <select name="name_kind" class="input col-span-12 sm:col-span-3" aria-label="Name type">{% for k, t in [('legal','Legal name'),('variant','Variant'),('nickname','Nickname'),('maiden','Maiden / former')] %}<option value="{{k}}" {{'selected' if n.kind == k}}>{{t}}</option>{% endfor %}</select>
+ <input name="name_first" class="input col-span-4 sm:col-span-3" placeholder="First" value="{{n.first}}" maxlength="40" aria-label="First name">
+ <input name="name_middle" class="input col-span-3 sm:col-span-2" placeholder="Middle" value="{{n.middle}}" maxlength="40" aria-label="Middle name">
+ <input name="name_last" class="input col-span-4 sm:col-span-3" placeholder="Last" value="{{n.last}}" maxlength="40" aria-label="Last name">
+ <button type="button" class="btn-icon col-span-1" data-del-row aria-label="Remove name">{{icon('trash')}}</button></div>{% endmacro %}
+{% macro row_addr(a) %}<div data-row class="grid grid-cols-12 gap-2 items-center">
+ <input name="addr_street" class="input col-span-12 sm:col-span-5" placeholder="Street (optional)" value="{{a.street}}" maxlength="80" aria-label="Street">
+ <input name="addr_city" class="input col-span-6 sm:col-span-3" placeholder="City" value="{{a.city}}" maxlength="40" aria-label="City">
+ <input name="addr_state" class="input col-span-2 sm:col-span-1 uppercase" placeholder="CA" value="{{a.state or 'CA'}}" maxlength="2" aria-label="State">
+ <label class="col-span-3 sm:col-span-2 flex items-center gap-1.5 text-[12.5px] text-stone-600 dark:text-neutral-400 whitespace-nowrap"><input type="radio" name="addr_current" value="0" {{'checked' if a.current}} class="accent-[#1c1b1a] dark:accent-white">Current</label>
+ <button type="button" class="btn-icon col-span-1" data-del-row aria-label="Remove address">{{icon('trash')}}</button></div>{% endmacro %}
+{% macro row_one(name, v, ph, type='text', mono=False) %}<div data-row class="flex gap-2 items-center"><input name="{{name}}" type="{{type}}" class="input {{'font-mono' if mono}}" placeholder="{{ph}}" value="{{v}}" maxlength="80" aria-label="{{ph}}"><button type="button" class="btn-icon shrink-0" data-del-row aria-label="Remove">{{icon('trash')}}</button></div>{% endmacro %}
+{% macro section(key, title, sub, ic, max) %}<section class="tile"><div class="flex items-start gap-3 px-3.5 pt-3 pb-3"><span class="w-8 h-8 rounded-lg bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-600 dark:text-neutral-300 shrink-0">{{icon(ic)}}</span><div class="min-w-0"><h2 class="text-[15px] font-semibold tracking-[-0.02em]">{{title}}</h2><div class="text-[12.5px] text-stone-500 dark:text-neutral-400">{{sub}}</div></div>
+ <button type="button" class="btn ml-auto shrink-0" data-add-row="{{key}}">{{icon('plus')}}Add</button></div>
+ <div class="card-w p-3 flex flex-col gap-2"><div data-list="{{key}}" data-max="{{max}}" class="flex flex-col gap-2">{{ caller() }}</div><div data-empty class="text-[12.5px] text-stone-400 px-1 py-2" hidden>None yet. Use “Add”.</div></div></section>{% endmacro %}
+
+<form method="post" class="max-w-[920px] mx-auto" novalidate>{{csrf()}}{% if onboard %}<input type="hidden" name="onboard" value="1">{% include "_steps.html" with context %}{% endif %}
+<div class="flex flex-wrap items-center gap-3.5 mb-5">
+ <a href="/person/{{p.id}}" class="btn-icon !w-10 !h-10 bg-white dark:bg-neutral-900 ring-1 ring-stone-200 dark:ring-white/10" aria-label="Back">{{icon('back')}}</a>{{avatar(p,'w-11 h-11 text-[14px]')}}
+ <div class="min-w-[200px] flex-1"><h1 class="text-[26px] sm:text-[30px] font-medium tracking-[-0.04em] leading-tight">{{'Your profile' if me().person_id == p.id else p.full_name ~ '’s profile'}}</h1>
+  <div class="text-[13px] text-stone-500 dark:text-neutral-400">{% if onboard %}Check these details. They're how we find your listings. Add every city you've lived in and any old phone numbers.{% else %}Everything here is used to find listings and is included in removal requests. Saving starts a new scan.{% endif %}</div></div>
+ <button class="btn-p max-sm:!hidden">{{icon('check')}}{{'Continue' if onboard else 'Save and re-scan'}}</button></div>
+{% if saved %}<div role="status" class="mb-3 rounded-2xl bg-emerald-50 dark:bg-emerald-400/10 ring-1 ring-emerald-200 dark:ring-emerald-400/20 px-4 py-3 text-[13px] text-emerald-800 dark:text-emerald-200 flex items-center gap-2">{{icon('check')}}Saved. A new scan has started with the updated details.</div>{% endif %}
+{% if errors %}<div role="alert" class="mb-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-4 py-3 text-[13px] text-rose-700 dark:text-rose-300"><div class="font-semibold mb-1">Nothing was saved. Please fix:</div>{% for e in errors %}<div class="flex gap-2 items-start">{{icon('alert','w-4 h-4 mt-0.5 shrink-0')}}<span>{{e}}</span></div>{% endfor %}</div>{% endif %}
+<div class="mb-3 rounded-2xl bg-stone-100/80 dark:bg-white/[.04] ring-1 ring-stone-200/70 dark:ring-white/10 px-4 py-3 text-[12.5px] text-stone-600 dark:text-neutral-400 flex items-start gap-2">{{icon('lock','w-4 h-4 mt-0.5 shrink-0')}}<span>Stored encrypted. <b class="font-semibold text-ink dark:text-white">Never</b> enter a Social Security number, full date of birth, driver's license or any ID number. They are rejected automatically.</span></div>
+<div class="flex flex-col gap-3">
+ {% call section('names', 'Names', 'Legal name, other spellings, nicknames and maiden or former names.', 'user', 12) %}{% for n in prof.names %}{{row_name(n)}}{% endfor %}{% endcall %}
+ {% call section('addresses', 'Addresses', 'Current and past. The city is required; the street makes matching more accurate.', 'pin', 12) %}{% for a in prof.addresses or [{'street':'','city':'','state':'CA','current':True}] %}{{row_addr(a)}}{% endfor %}{% endcall %}
+ <div class="grid md:grid-cols-2 gap-3">
+  {% call section('phones', 'Phone numbers', 'US numbers. Formats as you type.', 'phone', 8) %}{% for x in prof.phones or [''] %}{{row_one('phone', fmt_phone(x), '(555) 555-0100', 'tel', True)}}{% endfor %}{% endcall %}
+  {% call section('emails', 'Email addresses', 'Brokers often list these.', 'mail', 8) %}{% for x in prof.emails %}{{row_one('email', x, 'name@example.com', 'email', True)}}{% endfor %}{% endcall %}
+ </div>
+ {% call section('relatives', 'Relatives', ('Pre-filled with your family members. Edit or remove any, then save. ' if suggested else '') ~ 'Names that appear next to yours on people-search sites. Used only to confirm a match.', 'users', 20) %}{% for x in prof.relatives %}{{row_one('relative', x, 'First Last')}}{% endfor %}{% endcall %}
+ <section class="tile"><div class="flex items-start gap-3 px-3.5 pt-3 pb-3"><span class="w-8 h-8 rounded-lg bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-600 dark:text-neutral-300 shrink-0">{{icon('cal')}}</span><div><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Age range to match <span class="text-stone-400 font-normal text-[13px]">optional</span></h2><div class="text-[12.5px] text-stone-500 dark:text-neutral-400">Used to skip people-search records for other people with the same name: a record listing an age outside this range is ignored. Give a birth year <i>or</i> a range. Never the full birth date.</div></div></div>
+  <div class="card-w p-3 grid grid-cols-3 gap-3">
+   <div><label class="flabel" for="by">Birth year <span class="text-stone-400 font-normal">(or)</span></label><input class="input font-mono" id="by" name="birth_year" inputmode="numeric" maxlength="4" placeholder="2011" value="{{prof.birth_year or ''}}"></div>
+   <div><label class="flabel" for="amin">Minimum age to match</label><input class="input font-mono" id="amin" name="age_min" inputmode="numeric" maxlength="3" value="{{prof.age_min if prof.age_min is not none and not prof.birth_year else ''}}"></div>
+   <div><label class="flabel" for="amax">Maximum age to match</label><input class="input font-mono" id="amax" name="age_max" inputmode="numeric" maxlength="3" value="{{prof.age_max if prof.age_max is not none and not prof.birth_year else ''}}"></div></div></section>
+</div>
+<div class="flex justify-end gap-2 mt-4 mb-8">{% if not onboard %}<a href="/person/{{p.id}}" class="btn">Cancel</a>{% endif %}<button class="btn-p">{{icon('check')}}{{'Continue to signature' if onboard and p.needs_auth and not has_auth(p) else ('Finish' if onboard else 'Save and re-scan')}}</button></div>
+<template id="tpl-names">{{row_name({'kind':'variant','first':'','middle':'','last':''})}}</template>
+<template id="tpl-addresses">{{row_addr({'street':'','city':'','state':'CA','current':False})}}</template>
+<template id="tpl-phones">{{row_one('phone', '', '(555) 555-0100', 'tel', True)}}</template>
+<template id="tpl-emails">{{row_one('email', '', 'name@example.com', 'email', True)}}</template>
+<template id="tpl-relatives">{{row_one('relative', '', 'First Last')}}</template>
+</form>{% endblock %}

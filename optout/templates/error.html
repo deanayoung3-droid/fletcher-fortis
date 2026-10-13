@@ -1,0 +1,5 @@
+{% extends "_shell.html" %}{% block title %}{{code}}{% endblock %}{% block card %}
+<div class="mt-6 font-mono text-[12px] text-stone-400 tracking-wider">ERROR {{code}}</div>
+<h1 class="text-[26px] font-medium tracking-[-0.04em] mt-1">{{ {404:'Not found',403:'Not allowed',401:'Sign in required',413:'File too large',429:'Slow down',500:'Something broke'}.get(code, 'Something went wrong') }}</h1>
+<p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">{{msg}}</p>
+<div class="flex gap-2 mt-6"><a href="/" class="btn-p flex-1 !h-11">{{icon('back')}}Back to dashboard</a></div>{% endblock %}

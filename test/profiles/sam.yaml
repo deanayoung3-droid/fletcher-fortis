@@ -1,0 +1,13 @@
+# Fictional sample person for tests and demos.
+id: sam
+full_name: Sam Rivera
+first: Sam
+last: Rivera
+city: Springfield
+state: CA
+prior_cities:
+- Shelbyville
+email: sam.rivera@example.org
+phone: (555) 555-0143
+enabled: 1
+needs_auth: 1

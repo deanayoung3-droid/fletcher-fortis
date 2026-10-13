@@ -1,0 +1,10 @@
+# Local end-to-end test against a mock people-search site served inside the app container (no real broker is contacted).
+services:
+  app:
+    command: ["sh","-c","python -m http.server 8000 -d /test/mock >/dev/null 2>&1 & exec uvicorn main:app --host 0.0.0.0 --port 8080"]
+    environment:
+      SITES_FILE: /test/sites.test.yaml
+      SCAN_DELAY_MS: "200"
+      SCHEDULER: "false"
+    volumes: ["./test:/test:ro"]
+    ports: ["127.0.0.1:8080:8080"]

@@ -1,0 +1,8 @@
+parents:
+  mockparent:
+    optout: http://127.0.0.1:8000/optout-form.html
+sites:
+  - {id: mockemail, name: "MockPeopleSearch (email opt-out)", domain: mock.invalid, search_url: "http://127.0.0.1:8000/index.html?q={first}-{last}", card: ".card", optout: {type: email, to: "privacy@mock.invalid"}}
+  - {id: mockform, name: "MockFinder (CAPTCHA form)", search_url: "http://127.0.0.1:8000/index.html?r={first}", card: ".card", optout: {type: form, url: "http://127.0.0.1:8000/optout", captcha: true}}
+  - {id: mockdeep, name: "DeepFinder (paginated, detail pages)", parent: mockparent, search_url: "http://127.0.0.1:8000/deep/search.html?fn={first_q}&ln={last_q}&city={city_q}", extractor: generic, optout: {type: form, url: "http://127.0.0.1:8000/optout-form.html", captcha: false}}
+  - {id: mocksister, name: "SisterSearch (same parent)", parent: mockparent, search_url: "http://127.0.0.1:8000/sister/search.html?n={first}-{last}", extractor: generic, optout: {type: parent_suppression, url: "http://127.0.0.1:8000/optout-form.html"}}

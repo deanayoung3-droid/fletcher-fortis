@@ -1,0 +1,41 @@
+{% from "_ui.html" import icon, avatar, pill, label, brand with context %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Overview{% endblock %} · {{APP}}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<script src="/static/theme.js"></script>
+<link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/static/fonts/GeistMono-Variable.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/static/app.css">{% if BRAND %}<style>.bg-accent-500,.bg-accent-600,.dark .dark\:bg-accent-500{background-color:{{BRAND}}!important}.text-accent-500,.text-accent-600,.stroke-accent-500{color:{{BRAND}}!important;stroke:{{BRAND}}}</style>{% endif %}</head>
+<body class="min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased">
+{% set q = hq() %}{% set fam = fam_list() %}{% set U = me() %}{% set admin = U and U.role == 'admin' %}{% set ns = namespace(n=q|length) %}{% for m in fam %}{% set ns.n = ns.n + pstats(m.id).get('reappeared',0) %}{% endfor %}{% set alerts_n = needs_count() if U else 0 %}
+<div class="flex min-h-screen bg-shell dark:bg-black overflow-x-clip">
+ <aside id="sb" class="fixed inset-y-0 left-0 z-40 w-[248px] -translate-x-full lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen lg:shrink-0 overflow-hidden transition-transform duration-300 bg-shell dark:bg-black flex flex-col gap-4 px-3.5 py-5 lg:border-0 border-r border-stone-200">
+  <div class="flex items-center gap-2.5 px-2 h-10"><a href="/" class="flex items-center gap-2.5">{{brand('h-[26px]')}}<span class="text-[18px] font-semibold tracking-[-0.035em] leading-none">{{APP}}</span></a>
+   <button data-action="sb" class="lg:hidden ml-auto btn-icon">{{icon('x')}}</button></div>
+  <label class="flex items-center gap-2 h-10 rounded-xl bg-white dark:bg-neutral-900 ring-1 ring-black/[.05] dark:ring-white/10 px-3 text-stone-400 shadow-[0_1px_2px_rgba(0,0,0,.03)]">{{icon('search')}}<input class="bg-transparent outline-none text-[13.5px] text-ink dark:text-white placeholder:text-stone-400 w-full" placeholder="Search" id="k"><kbd class="font-mono text-[10.5px] rounded-md bg-stone-100 dark:bg-white/10 px-1.5 py-0.5 text-stone-500">⌘K</kbd></label>
+  <nav class="flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 sb-scroll">
+   {% for href, t, i in ([('/', 'Overview', 'grid'), ('/needs-you', 'Needs you', 'hand'), ('/family', 'Family & accounts', 'users'), ('/sites', 'Site coverage', 'search'), ('/calls', 'Calls & mail', 'phone'), ('/admin/heartbeat', 'Heartbeat', 'activity')] if admin else [('/person/' ~ U.person_id, 'My listings', 'grid'), ('/person/' ~ U.person_id ~ '/profile', 'My profile', 'user'), ('/person/' ~ U.person_id ~ '/authorize', 'Authorization', 'file')]) %}<a href="{{href}}" class="sb-link {{'on' if request.url.path == href}}">{{icon(i)}}<span>{{t}}</span>{% if t=='Needs you' and alerts_n %}<span class="ml-auto count !bg-orange-500 !text-white">{{alerts_n}}</span>{% endif %}</a>{% endfor %}
+   {% if admin %}<div class="sb-label mt-4 flex items-center">Family<a href="/add" class="ml-auto text-stone-400 hover:text-ink dark:hover:text-white" title="Add family member" aria-label="Add family member">{{icon('plus','w-3.5 h-3.5')}}</a></div>
+   {% for m in fam %}{% set ms = pstats(m.id) %}{% set rv = ms.get('candidate',0) + ms.get('reappeared',0) %}
+   <a href="/person/{{m.id}}" class="sb-link {{'on' if request.url.path.startswith('/person/' ~ m.id) or (l is defined and l.person_id == m.id)}}">{{avatar(m,'w-6 h-6 text-[9.5px]')}}<span class="truncate">{{m.full_name}}</span>
+    {% if ms.get('reappeared') %}<span class="ml-auto count !bg-rose-500 !text-white">{{rv}}</span>{% elif rv %}<span class="ml-auto count">{{rv}}</span>{% elif m.needs_auth and not has_auth(m) %}<span class="ml-auto text-amber-500" title="Signed authorization needed">{{icon('lock','w-3.5 h-3.5')}}</span>{% endif %}</a>{% endfor %}
+   <a href="/add" class="sb-link text-stone-500 dark:text-neutral-500">{{icon('plus')}}<span>Add family member</span></a>{% endif %}
+  </nav>
+  <div class="shrink-0 flex flex-col gap-1">
+   <a href="/needs-you" class="sb-link">{{icon('bell')}}<span>Notifications</span>{% if alerts_n %}<span class="ml-auto count !bg-orange-500 !text-white">{{alerts_n}}</span>{% endif %}</a>
+   <button data-action="theme" class="sb-link w-full"><span class="dark:hidden">{{icon('moon')}}</span><span class="hidden dark:inline">{{icon('sun')}}</span><span class="dark:hidden">Dark mode</span><span class="hidden dark:inline">Light mode</span><span class="ml-auto w-8 h-[18px] rounded-full bg-stone-200 dark:bg-accent-500 relative transition-colors"><i class="absolute top-[2px] left-[2px] dark:left-[16px] w-[14px] h-[14px] rounded-full bg-white shadow transition-all"></i></span></button>
+   {% if DRY %}<div class="mx-1 my-2 rounded-xl bg-amber-50 dark:bg-amber-400/10 ring-1 ring-amber-200/70 dark:ring-amber-400/20 px-3 py-2.5 text-[12px] leading-snug text-amber-800 dark:text-amber-200"><div class="flex items-center gap-1.5 font-semibold">{{icon('lock','w-3.5 h-3.5')}} Dry run is on</div><div class="mt-0.5 opacity-80">Nothing leaves the server.</div></div>
+   {% else %}<div class="mx-1 my-2 rounded-xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 p-3 text-[12px] text-rose-700 dark:text-rose-300 font-semibold">Live · sending enabled</div>{% endif %}
+   {% set mp = (fam|selectattr('id','equalto',U.person_id)|first) if U else None %}
+   <div class="flex items-center gap-2.5 px-2 pt-3 border-t border-stone-200/80 dark:border-white/10">{{avatar(mp or {'id':U.username,'full_name':U.username,'first':U.username,'last':''},'w-9 h-9 text-[11px]')}}<div class="leading-tight min-w-0 flex-1"><div class="text-[13.5px] font-semibold truncate">{{mp.first if mp else U.username}}</div><div class="text-[12px] text-stone-500 dark:text-neutral-500 truncate">{{'Admin · ' ~ (fam|length) ~ ' people' if admin else 'Member'}}</div></div>
+    <a href="/account/password" class="btn-icon !w-8 !h-8" title="Change password" aria-label="Change password">{{icon('key','w-3.5 h-3.5')}}</a>
+    <form method="post" action="/logout">{{csrf()}}<button class="btn-icon !w-8 !h-8" title="Sign out" aria-label="Sign out">{{icon('logout','w-3.5 h-3.5')}}</button></form></div>
+  </div>
+ </aside>
+ <div id="scrim" class="fixed inset-0 z-30 bg-black/30 backdrop-blur-[2px] hidden lg:hidden" data-action="sb"></div>
+ <div class="flex-1 min-w-0 flex flex-col">
+  <header class="lg:hidden sticky top-0 z-20 flex items-center gap-2.5 px-4 h-[58px] bg-shell/85 dark:bg-black/80 backdrop-blur border-b border-stone-200/70 dark:border-white/10">
+   <button class="btn-icon -ml-2" data-action="sb" aria-label="Menu">{{icon('menu')}}</button><a href="/" class="flex items-center gap-2 font-semibold text-[15px] tracking-[-0.02em]">{{brand('h-[22px]')}}{{APP}}</a>
+   <div class="ml-auto flex items-center"><button class="btn-icon" data-action="theme" aria-label="Toggle dark mode"><span class="dark:hidden">{{icon('moon')}}</span><span class="hidden dark:inline">{{icon('sun')}}</span></button>
+   <a href="/needs-you" class="btn-icon relative" aria-label="Alerts">{{icon('bell')}}{% if alerts_n %}<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-orange-500 ring-2 ring-shell dark:ring-black"></span>{% endif %}</a></div>
+  </header>
+  <main class="flex-1 px-4 lg:pl-3 lg:pr-6 py-5 lg:py-6">{% if admin and KEY_SOURCE == 'generated' %}<div class="mb-4 rounded-2xl bg-amber-50 dark:bg-amber-400/10 ring-1 ring-amber-200/70 dark:ring-amber-400/20 px-4 py-3 text-[12.5px] text-amber-800 dark:text-amber-200 flex items-center gap-2">{{icon('key')}}<span><b class="font-semibold">Encryption key is stored next to the data.</b> Set <span class="font-mono">FF_DATA_KEY</span> in the stack environment so a copy of the volume alone can't be decrypted (see SECURITY.md).</span></div>{% endif %}{% block body %}{% endblock %}</main>
+ </div>
+</div>
+<script src="/static/app.js"></script></body></html>

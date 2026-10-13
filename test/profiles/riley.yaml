@@ -1,0 +1,13 @@
+# Fictional sample person for tests and demos.
+id: riley
+full_name: Riley Rivera
+first: Riley
+last: Rivera
+city: Springfield
+state: CA
+prior_cities:
+- Shelbyville
+email: riley.rivera@example.org
+phone: (555) 555-0144
+enabled: 1
+needs_auth: 1

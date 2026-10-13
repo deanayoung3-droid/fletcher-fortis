@@ -1,0 +1,11 @@
+.env
+.env.*
+data/
+config/profiles/
+test/
+*.png
+**/__pycache__
+ui/node_modules
+.git
+deploy/
+*.tar*

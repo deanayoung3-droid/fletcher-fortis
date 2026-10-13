@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, pill, label, logo with context %}{% block title %}Site coverage{% endblock %}{% block body %}
+{% set C = cov.count %}{% set BAR = {'works':'bg-emerald-500','blocked':'bg-violet-500','unreachable_dc':'bg-amber-400','no_search':'bg-stone-300 dark:bg-neutral-600','dead':'bg-stone-200 dark:bg-neutral-700','broken':'bg-rose-500','unchecked':'bg-stone-100 dark:bg-neutral-800'} %}
+<div class="flex items-end gap-4 flex-wrap mb-5 reveal"><div><h1 class="text-[36px] font-medium tracking-[-0.045em]">Site coverage</h1>
+ <p class="text-[13.5px] text-stone-500 mt-1">{{cov.total}} people-search and public-record sites, built from the broker DB, the CA &amp; Vermont registries, Optery's public list and BADBOOL. Each one is health-checked with a read-only search.</p></div></div>
+<section class="tile !p-0 mb-3 reveal">
+ <div class="p-5 pb-4"><div class="flex items-baseline gap-2"><span class="text-[40px] font-medium num leading-none tracking-[-0.04em]">{{cov.total}}</span><span class="text-[13px] text-stone-500">sites defined · {{cov.parents|length}} parent companies grouped</span></div>
+  <div class="flex h-2.5 rounded-full overflow-hidden mt-4 gap-[2px]">{% for k in ['works','blocked','unreachable_dc','no_search','broken','dead','unchecked'] %}{% if C[k] %}<i class="{{BAR[k]}} grow" style="width:{{100*C[k]/cov.total}}%"></i>{% endif %}{% endfor %}</div>
+  <div class="flex flex-wrap gap-2 mt-4">{% for k in ['works','blocked','unreachable_dc','no_search','broken','dead','unchecked'] %}{% if C[k] %}
+   <a href="?status={{k}}" class="flex items-center gap-2 rounded-full ring-1 ring-stone-200 dark:ring-white/10 px-3 py-1.5 text-[12.5px] row-lift {{'!ring-ink dark:!ring-white' if fstatus==k}}"><i class="w-2 h-2 rounded-full {{BAR[k]}}"></i>{{HEALTH_LABEL[k][0]}} <span class="font-mono font-semibold">{{C[k]}}</span></a>{% endif %}{% endfor %}
+   {% if fstatus %}<a href="/sites" class="text-[12.5px] text-stone-500 px-2 py-1.5 underline">Show all</a>{% endif %}</div></div></section>
+<section class="tile !p-0 reveal">
+ <div class="px-2 pb-2 overflow-x-auto"><table class="w-full text-[13px] min-w-[760px]">
+  <thead><tr class="text-left text-[12px] text-stone-400 dark:text-neutral-500"><th class="font-normal px-3 py-2.5">Site</th><th class="font-normal px-3 py-2.5">Parent</th><th class="font-normal px-3 py-2.5">Health</th><th class="font-normal px-3 py-2.5 w-[38%]">Evidence (last probe)</th><th class="font-normal px-3 py-2.5">Opt-out</th></tr></thead>
+  <tbody>{% for s in cov.rows if (not fstatus or s.status == fstatus) %}{% set h = HEALTH_LABEL[s.status] %}
+  <tr class="border-t border-stone-100 dark:border-white/[.06] row-lift" data-q="{{s.name}} {{s.domain}} {{s.parent}}">
+   <td class="px-3 py-2.5"><div class="flex items-center gap-2.5">{{logo(s.name,'w-7 h-7 text-[10px]')}}<div class="min-w-0"><div class="font-medium truncate max-w-[200px]">{{s.name}}</div><div class="text-[11.5px] font-mono text-stone-400">{{s.domain}}</div></div></div></td>
+   <td class="px-3 py-2.5 text-[12.5px]">{{s.parent or '—'}}</td>
+   <td class="px-3 py-2.5 whitespace-nowrap">{{pill(h[0], h[1])}}</td>
+   <td class="px-3 py-2.5 text-[11.5px] font-mono text-stone-500 dark:text-neutral-400"><div class="line-clamp-2">{{s.evidence}}</div></td>
+   <td class="px-3 py-2.5 text-[12px] whitespace-nowrap">{% set o = s.optout %}{% if o.url %}<a class="underline decoration-stone-300" href="{{o.url}}" target="_blank" rel="noopener">{{'Parent form' if o.type == 'parent_suppression' else 'Form'}}</a>{% elif o.to %}<span class="font-mono">{{o.to}}</span>{% else %}<span class="text-stone-400">unknown</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, avatar, pill, status, logo, label with context %}{% set site = SITE.get(l.site,{}) %}{% set nm = site.get('name',l.site) %}{% set fl = l.fields|j %}
+{% block title %}{{nm}} · {{p.full_name}}{% endblock %}{% block body %}
+<div class="flex items-center gap-2 text-[13px] text-stone-500 mb-4"><a href="/" class="hover:text-ink dark:hover:text-white">Overview</a>{{icon('chev','w-3.5 h-3.5')}}<a href="/person/{{p.id}}" class="hover:text-ink dark:hover:text-white">{{p.full_name}}</a>{{icon('chev','w-3.5 h-3.5')}}<span class="text-ink dark:text-white font-medium">{{nm}}</span></div>
+<div class="flex flex-wrap items-center gap-3.5 mb-5">
+ <a href="/person/{{p.id}}" class="btn-icon !w-10 !h-10 bg-white dark:bg-neutral-900 ring-1 ring-stone-200 dark:ring-white/10" aria-label="Back">{{icon('back')}}</a>{{logo(nm,'w-11 h-11 text-[15px]')}}
+ <div class="min-w-0"><h1 class="text-[30px] font-medium tracking-[-0.04em] leading-tight flex items-center gap-2.5">{{nm}} {{status(l.status)}}</h1><div class="text-[13px] text-stone-500 font-mono truncate">{{l.url}}</div></div>
+ <div class="ml-auto flex gap-2">
+ {% if l.status in ('candidate','reappeared','blocked_auth') %}
+  <form method="post" action="/listing/{{l.id}}/notme">{{csrf()}}<button class="btn">{{icon('x')}}Not me</button></form>
+  <form method="post" action="/listing/{{l.id}}/approve">{{csrf()}}<button class="btn-p">{{icon('check')}}Approve removal</button></form>
+ {% elif l.status == 'needs_human' %}
+  <form method="post" action="/listing/{{l.id}}/done">{{csrf()}}<button class="btn">{{icon('check')}}I completed it</button></form>
+  <a class="btn-p" target="_blank" rel="noopener noreferrer" href="{{site.get('optout',{}).get('url','#')}}">Open opt-out form {{icon('ext','w-3.5 h-3.5')}}</a>
+ {% elif l.status == 'manual_check' %}
+  <form method="post" action="/listing/{{l.id}}/clear">{{csrf()}}<button class="btn">{{icon('check')}}Not listed</button></form>
+  <a class="btn-p" target="_blank" rel="noopener noreferrer" href="{{l.url}}">Open search {{icon('ext','w-3.5 h-3.5')}}</a>{% endif %}</div>
+</div>
+<div class="grid lg:grid-cols-3 gap-3">
+ <section class="tile lg:col-span-2">{{ label('Search blocked' if l.status in ('manual_check','checked_clear') else 'Screenshot · match outlined', 'image', 'checked ' ~ (l.last_seen or '')[:10]) }}
+  <div class="rounded-[14px] overflow-hidden ring-1 ring-stone-200/80 dark:ring-white/10 bg-white">{% if l.screenshot %}<a href="/shot/{{l.id}}" target="_blank"><img src="/shot/{{l.id}}" alt="Listing screenshot" class="w-full"></a>{% elif l.status in ('manual_check','checked_clear') %}<div class="aspect-[16/9] grid place-items-center text-center px-8"><div><span class="mx-auto w-12 h-12 rounded-2xl bg-violet-50 dark:bg-violet-400/10 text-violet-600 grid place-items-center">{{icon('lock','w-5 h-5')}}</span>
+   <div class="text-[15px] font-semibold text-ink mt-4">{{nm}} blocks automated searches</div><div class="text-[13px] text-stone-500 mt-1 max-w-md">The scanner never solves CAPTCHAs. Open the prefilled search in your own browser. If {{p.first}} is listed, copy the listing URL into “Add a listing manually” on {{p.first}}’s page. Otherwise mark it “Not listed”.</div>
+   <a class="btn-p mt-5" target="_blank" rel="noopener noreferrer" href="{{l.url}}">Open prefilled search {{icon('ext','w-3.5 h-3.5')}}</a></div></div>
+  {% else %}<div class="aspect-[16/9] grid place-items-center text-stone-400">{{icon('image','w-6 h-6')}}</div>{% endif %}</div></section>
+ <div class="flex flex-col gap-3">
+  <section class="tile">{{ label('What to look for' if l.status in ('manual_check','checked_clear') else 'Why we think it’s ' ~ p.first, 'search') }}
+   <div class="card-w divide-y divide-stone-100 dark:divide-white/[.07] text-[13px]">
+    <div class="flex justify-between px-4 py-2.5"><span class="text-stone-500">Person</span><span class="font-medium flex items-center gap-2">{{avatar(p,'w-5 h-5 text-[9px]')}}{{p.full_name}}</span></div>
+    {% set ev = fl.evidence or {} %}
+    {% if fl.name %}<div class="flex justify-between gap-4 px-4 py-2.5"><span class="text-stone-500">Listed as</span><span class="font-medium text-right">{{fl.name}}</span></div>{% endif %}
+    {% if fl.age %}<div class="flex justify-between gap-4 px-4 py-2.5"><span class="text-stone-500">Age shown</span><span class="font-medium">{{fl.age}}</span></div>{% endif %}
+    {% if fl.query %}<div class="flex justify-between gap-4 px-4 py-2.5"><span class="text-stone-500">Found by searching</span><span class="font-medium text-right">{{fl.query}}</span></div>{% endif %}
+    {% if l.score %}<div class="flex justify-between gap-4 px-4 py-2.5"><span class="text-stone-500">Match score</span><span class="font-mono">{{l.score}} / 100</span></div>{% endif %}
+    {% for k, lab in [('cities','City'),('phones','Phone'),('emails','Email'),('streets','Street'),('relatives','Relative')] %}{% if ev[k] %}<div class="flex justify-between gap-4 px-4 py-2.5"><span class="text-stone-500">{{lab}} matched</span><span class="font-medium text-right">{{ev[k]|join(', ')}}</span></div>{% endif %}{% endfor %}
+    {% if ev.listed_relatives %}<div class="flex justify-between gap-4 px-4 py-2.5"><span class="text-stone-500">Relatives on page</span><span class="text-right text-stone-600 dark:text-neutral-400">{{ev.listed_relatives[:4]|join(', ')}}</span></div>{% endif %}
+    {% if fl.detail %}<div class="flex justify-between gap-4 px-4 py-2.5"><span class="text-stone-500">Profile page</span><span class="font-medium">Opened and checked</span></div>{% endif %}
+    {% if p.age_min %}<div class="flex justify-between px-4 py-2.5"><span class="text-stone-500">Age filter</span><span class="font-medium">{{p.age_min}}–{{p.age_max}}</span></div>{% endif %}
+    {% if fl.snippet %}<div class="px-4 py-3 text-stone-600 dark:text-neutral-400 leading-relaxed">“{{fl.snippet[:300]}}”</div>{% endif %}</div></section>
+  <section class="tile">{{ label('Removal', 'shield') }}
+   <div class="card-w divide-y divide-stone-100 dark:divide-white/[.07] text-[13px]">
+    <div class="flex justify-between px-4 py-2.5"><span class="text-stone-500">Method</span><span class="font-medium">{{ {'email':'CCPA email','form':'Web form (auto-filled)','captcha_form':'Web form · CAPTCHA (you)','parent':'Parent-company suppression','none':'Manual'}.get(method, '—') }}</span></div>
+    {% if siblings %}<div class="px-4 py-2.5"><div class="text-stone-500 mb-1.5">Same person on sister sites</div>{% for sb in siblings %}<a href="/listing/{{sb.id}}" class="flex justify-between py-1 hover:underline"><span>{{SITE.get(sb.site,{}).get('name',sb.site)}}</span>{{status(sb.status)}}</a>{% endfor %}</div>{% endif %}
+    <div class="flex justify-between px-4 py-2.5"><span class="text-stone-500">First seen</span><span class="font-mono">{{l.first_seen[:10]}}</span></div>
+    <div class="flex justify-between px-4 py-2.5"><span class="text-stone-500">Last checked</span><span class="font-mono">{{(l.last_checked or '—')[:10]}}</span></div>
+    <div class="flex justify-between px-4 py-2.5"><span class="text-stone-500">Submitted</span><span class="font-mono">{{(l.submitted_at or '—')[:10]}}</span></div>
+    <div class="flex justify-between px-4 py-2.5"><span class="text-stone-500">Confirmed removed</span><span class="font-mono">{{(l.confirmed_at or '—')[:10]}}</span></div>
+    <div class="flex justify-between px-4 py-2.5"><span class="text-stone-500">Authorization</span>{% if not p.needs_auth %}{{pill('Not needed','gray')}}{% elif has_auth(p) %}{{pill('Confirmed','green')}}{% else %}{{pill('Missing','red')}}{% endif %}</div></div></section>
+  <section class="tile">{{ label('History', 'clock') }}
+   <div class="card-w px-4 py-1">{% for e in events %}<div class="flex gap-3 py-2.5 border-b last:border-0 border-stone-100 dark:border-white/[.07]"><span class="mt-1.5 w-2 h-2 rounded-full bg-accent-500 shrink-0"></span><div class="min-w-0"><div class="text-[13px] font-medium">{{e.kind.replace('_',' ')|capitalize}}</div><div class="text-[11.5px] text-stone-500 font-mono">{{e.ts[:16].replace('T',' ')}}</div></div></div>
+   {% else %}<div class="py-6 text-center text-[12.5px] text-stone-500">No events for this listing yet</div>{% endfor %}</div></section>
+ </div></div>
+{% endblock %}

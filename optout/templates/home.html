@@ -1,0 +1,104 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, avatar, pill, status, logo, label, gauge with context %}{% block body %}
+{% set A = all %}{% set found = (A.values()|sum) - A.get('not_me',0) - A.get('manual_check',0) - A.get('checked_clear',0) %}{% set pend = A.get('candidate',0) + A.get('blocked_auth',0) %}
+{% set prog = A.get('approved',0) + A.get('submitted',0) + A.get('pending',0) + A.get('needs_human',0) %}{% set fs = score() %}{% set mo = months() %}{% set hm = heat() %}
+{% set tg = namespace(id=people[0].id if people else '') %}{% for p in people|reverse %}{% if stats[p.id].get('candidate') %}{% set tg.id = p.id %}{% endif %}{% endfor %}
+{% set rv = '/person/' ~ tg.id if tg.id else '/add' %}{% set rate = (100 * A.get('confirmed_removed',0) / found)|round|int if found else 0 %}
+<div class="flex flex-wrap items-end gap-4 mb-5 px-1 reveal-me">
+ <div><h1 class="text-[40px] leading-[1.05] font-medium tracking-[-0.045em]">Overview</h1>
+ <p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-1.5">{{people|length}} people monitored · <span class="font-mono text-[12.5px]">{{found}}</span> exposures found · next scan {{next_scan().strftime('%a %b %-d')}}</p></div>
+ <div class="ml-auto flex gap-2"><span class="hidden md:inline-flex items-center gap-2 h-9 px-3.5 rounded-full bg-white dark:bg-neutral-900 ring-1 ring-black/[.05] dark:ring-white/10 text-[13px]">{{icon('cal','w-3.5 h-3.5')}}Last 12 weeks</span>
+ <a href="/family" class="btn">{{icon('users')}}Family &amp; accounts</a><a href="{{rv}}" class="btn-p">{{icon('check')}}Review exposures</a></div>
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-3">
+ <div class="reveal-me col-span-2 lg:col-span-1 rounded-[22px] p-1.5 bg-[linear-gradient(160deg,#ffa149_0%,#ff7a1a_55%,#f2600c_100%)] text-white shadow-[0_16px_34px_-16px_rgba(242,96,12,.8),inset_0_1px_0_rgba(255,255,255,.35)] transition-transform duration-300 hover:-translate-y-0.5">
+  <div class="px-3.5 pt-3 pb-3.5"><span class="inline-block rounded-full bg-white text-[#c2410c] text-[11.5px] font-semibold px-2.5 py-1 shadow-sm">Needs your approval</span>
+   <div class="text-[44px] font-medium num leading-none mt-3" data-count="{{pend}}">{{pend}}</div><div class="text-[12.5px] text-white/85 mt-2">{{A.get('blocked_auth',0)}} waiting on signed authorization</div></div>
+  <a href="{{rv}}" class="group flex items-center justify-between rounded-[16px] bg-white text-ink px-3.5 py-2.5 text-[13.5px] font-medium whitespace-nowrap">{{A.get('candidate',0)}} listings<span class="btn-p !h-8 !px-3.5 !text-[12.5px] group-hover:gap-2.5">Review{{icon('chev','w-3.5 h-3.5')}}</span></a>
+ </div>
+ {% for k, lab, v, sub, col in [('found','Exposures found',found,'across '~(SITE|length)~' broker sites','text-stone-800 dark:text-neutral-200'),('prog','Removal in progress',prog,(A.get('needs_human',0))~' need a human','text-accent-500'),('rm','Removed',A.get('confirmed_removed',0),rate~'% of everything found','text-emerald-500'),('re','Reappeared',A.get('reappeared',0),'came back after removal','text-rose-500')] %}
+ <div class="tile !p-4 flex flex-col justify-between min-h-[140px]">
+  <div class="text-[13px] text-stone-500 dark:text-neutral-400">{{lab}}</div>
+  <div class="flex items-end justify-between"><span class="text-[44px] font-medium num leading-none {{'text-rose-600 dark:text-rose-400' if k=='re' and v}}" data-count="{{v}}">{{v}}</span>
+   <span class="flex items-end gap-[3px] h-9 {{col}}">{% for d, n in hm[-12:] %}<i class="grow w-[4px] rounded-[2px] {{'hatch opacity-40' if not loop.last else 'bg-current'}}" style="--i:{{loop.index}};height:{{ [7, n*9]|max }}px;max-height:36px"></i>{% endfor %}</span></div>
+  <div class="text-[12px] text-stone-500 dark:text-neutral-500">{{sub}}</div></div>{% endfor %}
+</div>
+
+<div class="grid lg:grid-cols-12 gap-3 mb-3">
+ <section class="tile lg:col-span-4 !p-0 flex flex-col">
+  <div class="p-5 pb-3"><div class="flex items-start"><div><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Family privacy score</h2><div class="text-[12.5px] text-stone-500 mt-0.5">Average of {{people|length}} members</div></div>
+   <span class="ml-auto w-8 h-8 rounded-full ring-1 ring-stone-200 dark:ring-white/10 grid place-items-center text-stone-400">{{icon('shield','w-3.5 h-3.5')}}</span></div>
+   <div class="flex items-end gap-3 mt-4"><span class="text-[60px] leading-[.9] font-medium num"><span data-count="{{fs.value}}">{{fs.value}}</span><span class="text-stone-300 dark:text-neutral-700 text-[30px]">/100</span></span></div>
+   <div class="flex items-center gap-2 mt-3">{{pill('Grade ' ~ fs.grade, 'green' if fs.value >= 70 else 'amber')}}<span class="text-[12.5px] text-stone-500">{{fs.open}} open · {{fs.removed}} removed</span></div>
+   <div class="relative mt-5 h-2.5 rounded-full bg-stone-100 dark:bg-white/[.06] overflow-hidden"><i class="absolute inset-y-0 left-0 rounded-full text-accent-500 hatch bg-accent-100 dark:bg-accent-900/40" style="width:{{fs.value}}%"></i></div>
+   <div class="flex justify-between font-mono text-[10.5px] text-stone-400 mt-1.5"><span>0</span><span>Target 80</span><span>100</span></div></div>
+  <div class="mt-auto px-5 pb-4 divide-y divide-stone-100 dark:divide-white/[.07] text-[13px]">
+   {% for t, v, d, c in [('Exposures found', found, A.get('candidate',0) ~ ' new', 'amber'), ('Removed', A.get('confirmed_removed',0), rate ~ '%', 'green'), ('Reappeared', A.get('reappeared',0), 're-check weekly', 'red' if A.get('reappeared') else 'gray')] %}
+   <div class="flex items-center py-2.5"><span class="text-stone-500">{{t}}</span><span class="ml-auto font-semibold num mr-2.5">{{v}}</span>{{pill(d, c)}}</div>{% endfor %}</div>
+ </section>
+
+ <section class="tile lg:col-span-5 !p-0 flex flex-col">
+  <div class="p-5 pb-0 flex items-start"><div><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Exposures by month</h2><div class="text-[12.5px] text-stone-500 mt-0.5">Listings found vs confirmed removed</div></div>
+</div>
+  <div class="flex-1 px-5 pt-3 pb-4">{{ chart(mo|map(attribute=1)|list, [('Found', mo|map(attribute=2)|list, 'text-accent-500'), ('Removed', mo|map(attribute=3)|list, 'text-emerald-500')], 'bar', 250, width=420) }}</div></section>
+
+ <div class="lg:col-span-3 flex flex-col gap-3">
+  <a data-x href="{{'/listing/' ~ alerts[0].id if alerts else rv}}" class="reveal-me group relative overflow-hidden rounded-[22px] p-5 flex-1 min-h-[214px] flex flex-col text-white bg-[radial-gradient(120%_90%_at_100%_100%,#ffb27a_0%,rgba(255,178,122,0)_55%),radial-gradient(90%_80%_at_0%_0%,#2b3a8f_0%,rgba(43,58,143,0)_70%),linear-gradient(160deg,#3d55c9,#7b8ff0_55%,#e9a37e)] shadow-[0_18px_40px_-20px_rgba(61,85,201,.8)]">
+   <div class="flex items-center"><span class="inline-flex items-center gap-1.5 rounded-full bg-white/15 ring-1 ring-white/25 backdrop-blur px-2.5 py-1 text-[11.5px] font-medium">{{icon('sparkle','w-3.5 h-3.5')}}{{'Reappeared' if alerts else 'Progress'}}</span><span class="ml-auto font-mono text-[11px] text-white/70">{{alerts|length if alerts else ''}}</span></div>
+   {% if alerts %}<div class="mt-4 text-[38px] font-medium num leading-none">{{alerts|length}} listing{{'s' if alerts|length != 1}}</div>
+   <div class="text-[16px] font-medium tracking-[-0.02em] leading-snug mt-2">{{SITE.get(alerts[0].site,{}).get('name',alerts[0].site)}} relisted {{alerts[0].full_name.split()[0]}}</div>
+   <div class="text-[12.5px] text-white/75 mt-1">It was confirmed removed, then came back on the last scan.</div>
+   {% else %}<div class="mt-4 text-[38px] font-medium num leading-none">{{rate}}%</div><div class="text-[16px] font-medium tracking-[-0.02em] mt-2">of exposures removed</div><div class="text-[12.5px] text-white/75 mt-1">Every removal is re-checked weekly.</div>{% endif %}
+   <span class="mt-auto pt-4"><span class="inline-flex items-center gap-1.5 rounded-full bg-white text-ink text-[12.5px] font-medium px-3.5 py-2 transition group-hover:gap-2.5">{{'Review listing' if alerts else 'Review exposures'}}{{icon('chev','w-3.5 h-3.5')}}</span></span></a>
+ </div>
+</div>
+
+<div class="grid lg:grid-cols-12 gap-3 mb-3">
+ <section class="tile lg:col-span-8 !p-0">
+  <div class="flex items-center gap-2 p-4 pb-2"><div class="flex items-center gap-1 rounded-full bg-stone-100 dark:bg-white/[.06] p-1"><span class="tab on">Family · {{people|length}}</span><a href="/needs-you" class="tab">Needs you</a><a href="/calls" class="tab">Calls</a></div>
+   <span class="ml-auto pill bg-emerald-50 text-emerald-700 ring-emerald-200/70 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/20">{{icon('check','w-3 h-3')}}Scanned {{(events[0].ts[5:10] if events else '—')}}</span><a href="/add" class="btn !h-8">{{icon('plus','w-3.5 h-3.5')}}Add member</a></div>
+  <div class="px-2 pb-2 overflow-x-auto"><table class="w-full text-[13px] min-w-[640px]">
+   <thead><tr class="text-left text-[12px] text-stone-400 dark:text-neutral-500"><th class="font-normal px-3 py-2">Member</th><th class="font-normal px-3 py-2">Found</th><th class="font-normal px-3 py-2 w-[26%]">Progress</th><th class="font-normal px-3 py-2">Status</th><th class="font-normal px-3 py-2 text-right">Score</th><th></th></tr></thead>
+   <tbody>{% for p in people %}{% set s = stats[p.id] %}{% set tot = (s.values()|sum) - s.get('not_me',0) - s.get('manual_check',0) - s.get('checked_clear',0) %}{% set sc = score(p.id) %}
+   <tr class="group cursor-pointer row-lift border-t border-stone-100 dark:border-white/[.06]" data-href="/person/{{p.id}}" data-q="{{p.full_name}} {{p.city}}">
+    <td class="px-3 py-3"><div class="flex items-center gap-3">{{avatar(p,'w-9 h-9 text-[12px]')}}<div class="min-w-0"><a href="/person/{{p.id}}" class="font-semibold whitespace-nowrap">{{p.full_name}}</a><div class="text-[12px] text-stone-500 dark:text-neutral-500">{{[p.city, p.state]|select|join(', ') or 'Location not set'}}</div></div></div></td>
+    <td class="px-3 py-3 font-mono text-[12.5px]">{{tot}}</td>
+    <td class="px-3 py-3"><div class="flex h-1.5 rounded-full overflow-hidden bg-stone-100 dark:bg-white/[.06]">{% for k,c in [('confirmed_removed','bg-emerald-500'),('submitted','bg-accent-500'),('pending','bg-accent-500'),('approved','bg-accent-400'),('needs_human','bg-violet-500'),('candidate','bg-amber-400'),('blocked_auth','bg-amber-300'),('reappeared','bg-rose-500')] %}{% if tot and s.get(k) %}<i class="{{c}}" style="width:{{100*s.get(k,0)/tot}}%"></i>{% endif %}{% endfor %}</div><div class="text-[11.5px] text-stone-500 mt-1">{{s.get('confirmed_removed',0)}} of {{tot}} removed</div></td>
+    <td class="px-3 py-3"><div class="flex gap-1.5 flex-wrap">{% if s.get('reappeared') %}{{pill('Reappeared','red')}}{% elif s.get('candidate') %}{{pill(s.get('candidate')~' to review','amber')}}{% else %}{{pill('Protected','green')}}{% endif %}{% if p.needs_auth and not has_auth(p) %}{{pill('Auth needed','gray')}}{% endif %}{% if not p.enabled %}{{pill('Paused','gray')}}{% endif %}</div></td>
+    <td class="px-3 py-3 text-right"><span class="font-semibold num text-[15px]">{{sc.value}}</span> <span class="text-[11px] font-mono text-stone-400">{{sc.grade}}</span></td>
+    <td class="px-2 text-stone-300 group-hover:text-ink dark:text-neutral-700 dark:group-hover:text-white transition">{{icon('chev')}}</td></tr>{% endfor %}</tbody></table></div>
+ </section>
+ <section id="needs" class="tile lg:col-span-4 !p-0 scroll-mt-6">
+  <div class="flex items-start p-5 pb-2"><div><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Needs you</h2><div class="text-[12.5px] text-stone-500 mt-0.5">Things only a human can do · <a href="/needs-you" class="underline underline-offset-2 hover:text-ink dark:hover:text-white">see all</a></div></div><span class="ml-auto w-8 h-8 rounded-full ring-1 ring-stone-200 dark:ring-white/10 grid place-items-center text-stone-400">{{icon('hand','w-3.5 h-3.5')}}</span></div>
+  <div class="px-2 pb-2">
+  {% set items = [] %}
+  {% for a in alerts %}{% set _ = items.append(('alert','bg-rose-50 text-rose-600 ring-rose-100 dark:bg-rose-400/10 dark:text-rose-300 dark:ring-rose-400/20', a.full_name.split()[0] ~ ' reappeared on ' ~ SITE.get(a.site,{}).get('name',a.site), 'A new request is filed automatically' if AUTO_REFILE else 'Approve again to resend the request', '/listing/' ~ a.id)) %}{% endfor %}
+  {% for (pid, st), ls in hq()|groupby('person_id')|batch_needs %}{% set l = ls[0] %}{% set mc = st == 'manual_check' %}{% set n = ls|length %}{% set _ = items.append(('search' if mc else 'hand','bg-violet-50 text-violet-600 ring-violet-100 dark:bg-violet-400/10 dark:text-violet-300 dark:ring-violet-400/20', (('Check ' ~ n ~ ' blocked site' ~ ('s' if n > 1 else '')) if mc else (n ~ ' CAPTCHA form' ~ ('s' if n > 1 else ''))) ~ ' for ' ~ l.first, (ls|map(attribute='site')|map('site_name')|join(', '))|truncate(60), '/person/' ~ pid ~ '?f=' ~ st)) %}{% endfor %}
+  {% for p in people %}{% if p.needs_auth and not has_auth(p) %}{% set _ = items.append(('file','bg-amber-50 text-amber-600 ring-amber-100 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/20', 'Waiting on ' ~ p.first ~ '’s signature', 'They sign during onboarding; removals start right after', '/family?who=' ~ p.id)) %}{% endif %}
+  {% if drop_needed(p) %}{% set _ = items.append(('zap','bg-indigo-50 text-indigo-600 ring-indigo-100 dark:bg-indigo-400/10 dark:text-indigo-300 dark:ring-indigo-400/20', 'California DROP for ' ~ p.first, 'One 5-minute request reaches 500+ brokers', '/person/' ~ p.id)) %}{% endif %}{% endfor %}
+  {% for i, c, t, sub, href in items[:7] %}{% set href = href if href.startswith('/listing/') else '/needs-you' %}
+   <a href="{{href}}" class="group flex items-center gap-3 px-3 py-2.5 row-lift" data-q="{{t}}"><span class="w-9 h-9 rounded-full ring-1 grid place-items-center {{c}}">{{icon(i)}}</span>
+    <div class="min-w-0 flex-1"><div class="text-[13.5px] font-medium truncate">{{t}}</div><div class="text-[12px] text-stone-500 dark:text-neutral-500 truncate">{{sub}}</div></div><span class="text-stone-300 group-hover:text-ink dark:group-hover:text-white group-hover:translate-x-0.5 transition">{{icon('chev')}}</span></a>
+  {% else %}<div class="px-6 py-10 text-center"><span class="mx-auto w-11 h-11 rounded-full bg-emerald-50 dark:bg-emerald-400/10 text-emerald-600 grid place-items-center">{{icon('check','w-5 h-5')}}</span><div class="text-[14px] font-semibold mt-3">You're all caught up</div><div class="text-[12.5px] text-stone-500 mt-1">Only steps that truly need a person show up here, batched.</div></div>{% endfor %}
+  </div></section>
+</div>
+
+{% set cv = coverage() %}{% set CB = {'works':'bg-emerald-500','blocked':'bg-violet-500','unreachable_dc':'bg-amber-400','no_search':'bg-stone-300 dark:bg-neutral-600','broken':'bg-rose-500','dead':'bg-stone-200 dark:bg-neutral-700','unchecked':'bg-stone-100 dark:bg-neutral-800'} %}
+<a href="/sites" class="tile !p-0 mb-3 block group reveal"><div class="p-5 flex flex-wrap items-center gap-x-6 gap-y-3">
+ <div><div class="text-[15px] font-semibold tracking-[-0.02em]">Site coverage</div><div class="text-[12.5px] text-stone-500 mt-0.5"><span class="font-semibold text-ink dark:text-white num">{{cv.total}}</span> people-search sites checked for the family</div></div>
+ <div class="flex-1 min-w-[260px]"><div class="flex h-2 rounded-full overflow-hidden gap-[2px]">{% for k in ['works','blocked','unreachable_dc','no_search','broken','dead','unchecked'] %}{% if cv.count[k] %}<i class="{{CB[k]}} grow" style="width:{{100*cv.count[k]/cv.total}}%"></i>{% endif %}{% endfor %}</div>
+  <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2.5 text-[12px] text-stone-500">{% for k in ['works','blocked','unreachable_dc','no_search','broken','dead'] %}{% if cv.count[k] %}<span class="flex items-center gap-1.5"><i class="w-2 h-2 rounded-full {{CB[k]}}"></i>{{HEALTH_LABEL[k][0]}} <span class="font-mono text-ink dark:text-white">{{cv.count[k]}}</span></span>{% endif %}{% endfor %}</div></div>
+ <span class="inline-flex items-center gap-1.5 rounded-full ring-1 ring-stone-200 dark:ring-white/10 text-[12.5px] font-medium px-3.5 py-2 transition group-hover:gap-2.5">All sites{{icon('chev','w-3.5 h-3.5')}}</span></div></a>
+<div class="grid lg:grid-cols-12 gap-3">
+ <section class="tile lg:col-span-8 !p-0"><div class="p-5 pb-1 flex items-start"><div><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Found vs removed, by week</h2><div class="text-[12.5px] text-stone-500 mt-0.5">New exposures found and listings confirmed removed · last 12 weeks</div></div>
+  {% if brokers %}<span class="ml-auto text-[12.5px] text-stone-500"><span class="font-semibold text-ink dark:text-white num">{{brokers.total}}</span> brokers tracked</span>{% endif %}</div>
+  {% set wk = weeks() %}<div class="px-5 pb-5 pt-2">{{ chart(wk[0], [('Found', wk[1], 'text-accent-500'), ('Removed', wk[2], 'text-emerald-500')], 'line', 220) }}
+   {% if brokers %}<div class="mt-3 pt-3 border-t border-stone-100 dark:border-white/[.07] flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-stone-500">{% for k,v in brokers.src.items() %}<span>{{k}} <span class="font-mono text-ink dark:text-white">{{v}}</span></span>{% endfor %}<span class="ml-auto text-stone-400">refreshed {{brokers.ts[:10]}}</span></div>{% endif %}
+  </div></section>
+ <section class="tile lg:col-span-4 !p-0"><div class="p-5 pb-2"><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Recent activity</h2></div>
+  <div class="px-5 pb-3">{% for e in events[:6] %}
+   <div class="flex gap-3 py-2.5 border-b last:border-0 border-stone-100 dark:border-white/[.07]"><span class="mt-1.5 w-2 h-2 rounded-full shrink-0 {{'bg-emerald-500' if 'removed' in e.kind or 'confirm' in e.kind else 'bg-rose-500' if 'reappear' in e.kind else 'bg-accent-500' if 'scan' in e.kind or 'candidate' in e.kind else 'bg-stone-300 dark:bg-neutral-600'}}"></span>
+    <div class="min-w-0"><div class="text-[13px] font-medium">{{e.kind.replace('ALERT_','').replace('_',' ')|capitalize}}{% if e.person_id %} <span class="text-stone-400 font-normal">· {{e.person_id|capitalize}}</span>{% endif %}</div><div class="text-[11.5px] text-stone-500 dark:text-neutral-500 truncate"><span class="font-mono">{{e.ts[5:16].replace('T',' ')}}</span> · {{(e.detail or '')[:56]}}</div></div></div>
+  {% else %}<div class="py-8 text-center text-[13px] text-stone-500">No activity yet</div>{% endfor %}</div></section>
+</div>
+{% endblock %}

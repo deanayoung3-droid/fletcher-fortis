@@ -1,0 +1,92 @@
+# Fletcher Fortis: Portainer stack (Stacks > Add stack > Web editor). Uses the image you imported in Images > Import.
+# Optional services are behind compose profiles: COMPOSE_PROFILES=tunnel (Cloudflare Tunnel, default in stack.env.example) or caddy.
+name: fletcher-fortis
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+services:
+  app:
+    <<: *hardening
+    image: ${IMAGE:-localhost/fletcher-fortis:latest}
+    user: "10001:10001"
+    environment:
+      TZ: ${TZ:-America/Los_Angeles}
+      DRY_RUN: ${DRY_RUN:-true}                        # switch off in Heartbeat > Settings when ready
+      PUBLIC_URL: ${PUBLIC_URL:-}                      # or set it in Heartbeat > Settings
+      COOKIE_SECURE: "true"                            # sessions only over HTTPS (Cloudflare / Caddy terminate TLS)
+      TRUST_CF_HEADER: ${TRUST_CF_HEADER:-true}        # rate-limit by CF-Connecting-IP (set false if not behind Cloudflare)
+      # ---- secrets (Portainer env vars; never baked into the image) ----
+      FF_DATA_KEY: ${FF_DATA_KEY:?set FF_DATA_KEY (48+ random chars) - it encrypts all personal data}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}               # optional: leave empty to use the first-run setup wizard
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      INBOUND_SECRET: ${INBOUND_SECRET:-}
+      # ---- sending / inbound ----
+      SEND_PROVIDER: ${SEND_PROVIDER:-resend}
+      FROM_ADDRESS: ${FROM_ADDRESS:-}
+      FROM_NAME: ${FROM_NAME:-}
+      INBOUND_AUTOCLICK: ${INBOUND_AUTOCLICK:-true}
+      # ---- scanning (deep scan pacing) ----
+      SCAN_ENABLED: ${SCAN_ENABLED:-true}
+      SCAN_DAY: ${SCAN_DAY:-6}
+      SCAN_HOUR: ${SCAN_HOUR:-3}
+      SCAN_DELAY_MS: ${SCAN_DELAY_MS:-8000}
+      SCAN_MAX_QUERIES_PER_SITE: ${SCAN_MAX_QUERIES_PER_SITE:-6}
+      SCAN_MAX_PAGES: ${SCAN_MAX_PAGES:-2}
+      SCAN_MAX_DETAILS: ${SCAN_MAX_DETAILS:-3}
+      SCAN_ON_EDIT: ${SCAN_ON_EDIT:-true}
+      PROXY_URL: ${PROXY_URL:-}
+      MAIL_FILTER_ENABLED: ${MAIL_FILTER_ENABLED:-false}
+      SUMMARY_TO: ${SUMMARY_TO:-}
+      SUMMARY_ENABLED: ${SUMMARY_ENABLED:-true}          # still needs RESEND_API_KEY + DRY_RUN=false
+      SUMMARY_HOUR: ${SUMMARY_HOUR:-8}
+      TWILIO_ENABLED: ${TWILIO_ENABLED:-false}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+    volumes:
+      - ff-data:/data              # encrypted SQLite, screenshots, signed authorization PDFs, broker DB
+      - ff-config:/config:ro       # optional profiles/*.yaml seed (people can also be added in the app)
+    tmpfs:
+      - /tmp:size=512m,mode=1777   # Chromium scratch space (root filesystem is read-only)
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    networks: [ff]
+    mem_limit: 1200m
+    pids_limit: 512
+    shm_size: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=4).status==200 else 1)"]
+      interval: 60s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  cloudflared:                    # COMPOSE_PROFILES=tunnel : Cloudflare Tunnel, no port forwarding
+    <<: *hardening
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:2026.9.1
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    networks: [ff]
+    depends_on: [app]
+
+  caddy:                          # COMPOSE_PROFILES=caddy : automatic HTTPS on 80/443 (needs ports forwarded)
+    <<: *hardening
+    profiles: [caddy]
+    image: caddy:2.10-alpine
+    cap_add: [NET_BIND_SERVICE]
+    command: caddy reverse-proxy --from ${DOMAIN:-app.example.com} --to app:8080
+    ports: ["80:80", "443:443"]
+    volumes: [caddy-data:/data, caddy-config:/config]
+    networks: [ff]
+    depends_on: [app]
+
+volumes:
+  ff-data: {}
+  ff-config: {}
+  caddy-data: {}
+  caddy-config: {}
+networks:
+  ff: { name: fletcher-fortis }

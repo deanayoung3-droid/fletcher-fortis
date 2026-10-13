@@ -1,0 +1,11 @@
+.env
+data/
+config/profiles/*.yaml
+!config/profiles/example.yaml
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+*.tar.gz
+*.db
+eraser/config.yaml

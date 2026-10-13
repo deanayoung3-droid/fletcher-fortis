@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, avatar, pill with context %}{% block title %}Authorization · {{p.full_name}}{% endblock %}{% block body %}
+<div class="max-w-[720px] mx-auto">{% if onboard %}{% include "_steps.html" with context %}{% endif %}
+<div class="flex items-center gap-3.5 mb-5"><a href="/person/{{p.id}}" class="btn-icon !w-10 !h-10 bg-white dark:bg-neutral-900 ring-1 ring-stone-200 dark:ring-white/10" aria-label="Back">{{icon('back')}}</a>{{avatar(p,'w-11 h-11 text-[14px]')}}
+ <div class="min-w-0"><h1 class="text-[28px] font-medium tracking-[-0.04em] leading-tight">Authorized-agent signature</h1><div class="text-[13px] text-stone-500 dark:text-neutral-400">{{p.full_name}} · lets {{APP}} send privacy requests for {{'you' if can_sign else p.first}}</div></div></div>
+{% if error %}<div role="alert" class="mb-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-4 py-3 text-[13px] text-rose-700 dark:text-rose-300 flex gap-2 items-center">{{icon('alert')}}{{error}}</div>{% endif %}
+{% if has_auth(p) %}
+<section class="tile mb-3"><div class="card-w p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+ <span class="w-11 h-11 rounded-xl bg-emerald-50 dark:bg-emerald-400/10 text-emerald-600 grid place-items-center shrink-0">{{icon('check','w-5 h-5')}}</span>
+ <div class="flex-1 min-w-0">{% if p.esign_at %}<div class="text-[14px] font-semibold">Signed by {{p.esign_name}}</div><div class="text-[12.5px] text-stone-500 font-mono">{{p.esign_at.replace('T',' ')[:16]}} · @{{p.esign_user}} · {{p.esign_ip}}</div>
+ {% else %}<div class="text-[14px] font-semibold">Signed PDF on file</div><div class="text-[12.5px] text-stone-500">Uploaded as a fallback.</div>{% endif %}</div>
+ <a href="/person/{{p.id}}/authorization.pdf" class="btn">{{icon('download')}}Authorization PDF</a></div></section>{% endif %}
+<section class="tile"><div class="card-w p-5 sm:p-6">
+ <div class="text-[12px] font-mono uppercase tracking-wider text-stone-400">Authorization letter</div>
+ <div class="mt-3 text-[14px] leading-relaxed text-stone-700 dark:text-neutral-300 space-y-3">
+  <p>I, <b class="text-ink dark:text-white">{{p.full_name}}</b>, authorize {{APP}} and the family administrator who operates it to act as my authorized agent to submit requests to delete, to opt out of the sale or sharing of, and to know the personal information that data brokers and people-search websites hold about me, and to receive related correspondence on my behalf.</p>
+  <p class="text-[13px] text-stone-500 dark:text-neutral-400">Covers Cal. Civ. Code 1798.105, 1798.120 and 1798.135(e), 11 CCR 7063 and comparable state laws. You can revoke it at any time. We record your drawn signature, typed name, the time, your IP address and your account, and generate a PDF letter from it. No Social Security number, birth date or ID number is ever asked for.</p></div>
+ {% if can_sign %}
+ <form method="post" class="mt-5 pt-5 border-t border-stone-100 dark:border-white/[.07] flex flex-col gap-4" data-sigform>{{csrf()}}{% if onboard %}<input type="hidden" name="onboard" value="1">{% endif %}
+  <div><div class="flex items-end mb-1.5"><label class="flabel !mb-0" for="sigpad">Draw your signature</label><button type="button" class="ml-auto text-[12.5px] text-stone-500 hover:text-ink dark:hover:text-white underline-offset-2 hover:underline" data-sigclear>Clear</button></div>
+   <div class="relative rounded-2xl ring-1 ring-stone-200 dark:ring-white/10 bg-white dark:bg-neutral-950 overflow-hidden">
+    <canvas id="sigpad" class="block w-full h-[170px] touch-none cursor-crosshair" aria-label="Signature pad: draw with your finger, pen or mouse" role="img"></canvas>
+    <div class="pointer-events-none absolute left-6 right-6 bottom-9 border-b border-dashed border-stone-300 dark:border-white/15"></div>
+    <div class="pointer-events-none absolute left-6 bottom-3 text-[11.5px] text-stone-400" data-sighint>Sign here with your finger or mouse</div></div>
+   <input type="hidden" name="sig" id="sig"></div>
+  <div><label class="flabel" for="tn">Type your full legal name</label><input class="input text-[16px]" id="tn" name="typed_name" required maxlength="120" autocomplete="name" placeholder="{{p.full_name}}"></div>
+  <label class="flex items-start gap-3 text-[14px] font-medium cursor-pointer"><input type="checkbox" name="agree" value="yes" required class="mt-1 w-4 h-4 accent-[#1c1b1a] dark:accent-white">{{ESIGN_STATEMENT}}.</label>
+  <div class="flex justify-end gap-2">{% if not onboard %}<a href="/person/{{p.id}}" class="btn">Not now</a>{% endif %}<button class="btn-p" data-sigsubmit>{{icon('check')}}{{'Sign again' if p.esign_at else ('Sign and finish' if onboard else 'Sign authorization')}}</button></div>
+  <p class="text-[12px] text-stone-500 -mt-1 text-right">We turn this into a signed PDF automatically. Nothing to print or upload.</p></form>
+ {% else %}
+ <div class="mt-5 pt-5 border-t border-stone-100 dark:border-white/[.07] flex items-start gap-3 text-[13px] text-stone-600 dark:text-neutral-400">{{icon('lock','w-4 h-4 mt-0.5 shrink-0')}}<span>Only {{p.first or p.full_name}} can sign this, from their own login. Removals for {{p.first}} stay blocked until they do. Invite them under <a class="underline" href="/family">Family &amp; accounts</a>; signing is part of their onboarding.</span></div>
+ {% endif %}</div></section>
+</div>{% endblock %}

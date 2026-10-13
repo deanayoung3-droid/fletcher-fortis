@@ -1,0 +1,13 @@
+# Fictional sample person for tests and demos.
+id: jordan
+full_name: Jordan Rivera
+first: Jordan
+last: Rivera
+city: Springfield
+state: CA
+prior_cities:
+- Shelbyville
+email: jordan.rivera@example.org
+phone: (555) 555-0145
+enabled: 1
+needs_auth: 1

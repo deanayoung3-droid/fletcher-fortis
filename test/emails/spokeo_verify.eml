@@ -1,0 +1,18 @@
+From: Spokeo Privacy <privacy@spokeo.com>
+To: Fletcher Fortis Privacy <privacy+alex@example.com>
+Subject: Re: CCPA Data Deletion Request - Right to Delete Personal Information [FF-alex-{OID}]
+Message-ID: <a1@spokeo.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset=utf-8
+
+Hello, please confirm your opt-out request by clicking the link below:
+https://www.spokeo.com/optout/confirm?token=abc123
+Questions? Visit https://www.spokeo.com/help
+--b1
+Content-Type: text/html; charset=utf-8
+
+<p>Please <a href="https://www.spokeo.com/optout/confirm?token=abc123&amp;x=1">confirm your opt-out request</a>.</p>
+--b1--

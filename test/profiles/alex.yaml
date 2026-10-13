@@ -1,0 +1,15 @@
+# Fictional sample person for tests and demos.
+id: alex
+full_name: Alex Quinn Rivera
+first: Alex
+last: Rivera
+city: Springfield
+state: CA
+prior_cities:
+- Shelbyville
+email: alex.rivera@example.org
+phone: (555) 555-0142
+age_min: 13
+age_max: 19
+enabled: 1
+needs_auth: 0

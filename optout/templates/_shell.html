@@ -1,0 +1,10 @@
+{% from "_ui.html" import icon, brand with context %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}{% endblock %} · {{APP}}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<script src="/static/theme.js"></script><link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/static/fonts/GeistMono-Variable.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/static/app.css">{% if BRAND %}<style>.bg-accent-500,.bg-accent-600,.dark .dark\:bg-accent-500{background-color:{{BRAND}}!important}.text-accent-500,.text-accent-600,.stroke-accent-500{color:{{BRAND}}!important;stroke:{{BRAND}}}</style>{% endif %}</head>
+<body class="min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased grid place-items-center p-5">
+<div class="w-full max-w-[420px] reveal">
+ <div class="rounded-[28px] bg-shell dark:bg-black p-2 shadow-[0_30px_80px_-30px_rgba(41,37,36,.35)] ring-1 ring-black/[.04] dark:ring-white/10">
+  <div class="rounded-[22px] bg-white dark:bg-[#111112] p-7 sm:p-8">
+   <div class="flex items-center gap-2.5">{{brand('h-8')}}<span class="text-[17px] font-semibold tracking-[-0.035em]">{{APP}}</span></div>
+   {% block card %}{% endblock %}</div>
+  <div class="flex items-center justify-center gap-2 py-3 text-[12px] text-stone-500">{{icon('shield','w-3.5 h-3.5')}}{{'Dry run is on · nothing is sent' if DRY else 'Live mode'}}<span class="text-stone-300 dark:text-neutral-700">·</span><button type="button" data-action="theme" class="hover:text-ink dark:hover:text-white">Theme</button></div></div></div>
+<script src="/static/app.js"></script></body></html>

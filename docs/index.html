@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fletcher Fortis: self-hosted data-broker removal for families</title>
+<meta name="description" content="Find your family on 430+ people-search sites, file the removal requests, confirm they're gone, and keep watching. Open source, self-hosted, one Docker container.">
+<meta property="og:title" content="Fletcher Fortis">
+<meta property="og:description" content="Self-hosted data-broker removal for your family. Open source, one container.">
+<meta property="og:image" content="assets/overview.webp">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/theme.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="./"><svg class="mark" viewBox="0 0 38 48" fill="currentColor" aria-hidden="true"><path d="M19 30.5C25.9036 30.5 31.5 36.0964 31.5 43H26.5C26.5 38.8579 23.1421 35.5 19 35.5C14.8579 35.5 11.5 38.8579 11.5 43H6.5C6.5 36.0964 12.0964 30.5 19 30.5ZM0 11.5C6.90356 11.5 12.5 17.0964 12.5 24C12.5 30.9036 6.90356 36.5 0 36.5V31.5C4.14214 31.5 7.5 28.1421 7.5 24C7.5 19.8579 4.14214 16.5 0 16.5V11.5ZM38 16.5C33.8579 16.5 30.5 19.8579 30.5 24C30.5 28.1421 33.8579 31.5 38 31.5V36.5C31.0964 36.5 25.5 30.9036 25.5 24C25.5 17.0964 31.0964 11.5 38 11.5V16.5ZM11.5 5C11.5 9.14214 14.8579 12.5 19 12.5C23.1421 12.5 26.5 9.14214 26.5 5H31.5C31.5 11.9036 25.9036 17.5 19 17.5C12.0964 17.5 6.5 11.9036 6.5 5H11.5Z"/></svg><span>Fletcher Fortis</span></a>
+    <nav class="links" aria-label="Main">
+      <a href="#features">Features</a><a href="#how">How it works</a><a href="#self-host">Self-host</a><a href="#security">Security</a>
+    </nav>
+    <div class="nav-r">
+      <button class="icon-btn" id="theme" type="button" aria-label="Toggle dark mode"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="sun" d="M12 4V2m0 20v-2m8-8h2M2 12h2m13.66-5.66 1.41-1.41M4.93 19.07l1.41-1.41m0-11.32L4.93 4.93m14.14 14.14-1.41-1.41M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"/><path class="moon" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg></button>
+      <a class="btn btn-sm" href="https://github.com/fletcher-fortis/fletcher-fortis"><svg viewBox="0 0 16 16" aria-hidden="true" class="gh"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero">
+  <div class="wrap">
+    <a class="eyebrow" href="https://github.com/fletcher-fortis/fletcher-fortis"><span class="dot"></span>Open source · MIT · Runs on your own hardware</a>
+    <h1>Get your family off people&#8209;search sites.<br><span class="muted">And keep them off.</span></h1>
+    <p class="lede">Fletcher Fortis finds each family member on 430+ data-broker sites, sends the removal requests, confirms the listings are gone and checks again every week. It runs in one container on a home server or a $5 VPS. Your data stays in your own encrypted database.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#self-host">Self-host in 3 commands</a>
+      <a class="btn" href="https://github.com/fletcher-fortis/fletcher-fortis">View on GitHub <span aria-hidden="true">→</span></a>
+    </div>
+    <div class="shot hero-shot">
+      <div class="chrome"><i></i><i></i><i></i><span>localhost:8080</span></div>
+      <picture class="only-light"><source media="(max-width: 720px)" srcset="assets/overview-sm.webp"><img src="assets/overview.webp" width="2880" height="1800" alt="Fletcher Fortis overview: 24 exposures found, 13 removed, a weekly chart of listings found versus removed, and the family's privacy score" fetchpriority="high"></picture>
+      <picture class="only-dark"><source media="(max-width: 720px)" srcset="assets/overview-dark-sm.webp"><img src="assets/overview-dark.webp" width="2880" height="1800" alt="Fletcher Fortis overview in dark mode" loading="lazy"></picture>
+    </div>
+  </div>
+</section>
+
+<section class="stats" aria-label="At a glance">
+  <div class="wrap stats-in">
+    <div><b>430+</b><span>people-search sites checked per person</span></div>
+    <div><b>20</b><span>state privacy laws, picked per person</span></div>
+    <div><b>Day 20 · 45</b><span>automatic reminder and escalation</span></div>
+    <div><b>$0</b><span>per family member, ever</span></div>
+  </div>
+</section>
+
+<section id="features" class="sec">
+  <div class="wrap">
+    <p class="kicker">What it does</p>
+    <h2>Scan, remove, monitor. On its own.</h2>
+    <p class="sub">Most of data-broker removal is repetitive work: search, match, send the right request, wait, check again. That part is automated, and you can see every step.</p>
+    <div class="grid3">
+      <article class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+        <h3>Scan</h3>
+        <p>Every name, nickname, former city and phone you add is searched on 430+ sites. Matches are scored 0–100 on name, age, city and relatives, with a screenshot kept as evidence.</p>
+        <ul><li>Weekly, and after every profile change</li><li>Site coverage shows which sites answer</li></ul>
+      </article>
+      <article class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M9 6V4h6v2m-8 0 1 14h8l1-14"/></svg></div>
+        <h3>Remove</h3>
+        <p>The best channel is chosen for each broker: parent-company suppression, the web form or a privacy email. Each request is written for the person's state and sent as their authorized agent.</p>
+        <ul><li>Only lists what the broker showed</li><li>Verification links clicked for you</li></ul>
+      </article>
+      <article class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div>
+        <h3>Monitor</h3>
+        <p>Reminder on day 20, escalation on day 45. A listing is marked Removed only after a re-scan confirms it's gone, then re-checked weekly and re-filed if it comes back.</p>
+        <ul><li>Weekly email per family member</li><li>Heartbeat shows the health of every job</li></ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="sec split">
+  <div class="wrap split-in">
+    <div>
+      <p class="kicker">Needs you</p>
+      <h2>A short list, not a second job.</h2>
+      <p class="sub">The few steps that need a person are on one page, grouped by person, each with the reason in plain language and one button to do it.</p>
+      <ul class="checks">
+        <li><b>Blocked sites retry first.</b> They're retried from your server's own IP after 1, 2, 4, 8 and 16 days before they reach you.</li>
+        <li><b>CAPTCHA solving is optional.</b> 2Captcha or CapSolver with a hard monthly budget. Off by default, with a cost estimate shown.</li>
+        <li><b>Human-only steps are labeled.</b> California DROP residency, the person's own signature, photo-ID uploads and phone-only opt-outs.</li>
+      </ul>
+    </div>
+    <div class="shot">
+      <div class="chrome"><i></i><i></i><i></i><span>Needs you</span></div>
+      <img class="only-light" src="assets/needs-you.webp" width="2880" height="1800" alt="Needs you page: a California DROP request and a signature, each with the reason and an action button" loading="lazy">
+      <img class="only-dark" src="assets/needs-you-dark.webp" width="2880" height="1800" alt="Needs you page in dark mode" loading="lazy">
+    </div>
+  </div>
+</section>
+
+<section id="how" class="sec">
+  <div class="wrap">
+    <p class="kicker">How it works</p>
+    <h2>One lifecycle for every listing.</h2>
+    <p class="sub">Every step runs on a schedule inside the container. Dry run is on until you turn it off, so you can read every request before anything is sent.</p>
+    <ol class="steps">
+      <li><span>01</span><b>Scan</b><p>Headless Chromium, one site at a time, with a polite delay.</p></li>
+      <li><span>02</span><b>Match</b><p>Scored 0–100. Low scores are shown but never acted on.</p></li>
+      <li><span>03</span><b>Approve</b><p>By the person, the admin, or automatically above a score you set.</p></li>
+      <li><span>04</span><b>Submit</b><p>Parent suppression, form or email, whichever has worked for that broker.</p></li>
+      <li><span>05</span><b>Verify</b><p>Broker confirmation emails arrive and their links are opened.</p></li>
+      <li><span>06</span><b>Follow up</b><p>Reminder on day 20, escalation that cites the regulator on day 45.</p></li>
+      <li><span>07</span><b>Confirm</b><p>A re-scan shows the page is gone. Marked Removed.</p></li>
+      <li><span>08</span><b>Watch</b><p>Re-checked weekly. Re-filed automatically if it comes back.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section id="self-host" class="sec">
+  <div class="wrap split-in">
+    <div>
+      <p class="kicker">Self-host in minutes</p>
+      <h2>Three commands. Then a setup wizard.</h2>
+      <p class="sub">You don't edit config files. Email keys, schedules, branding and safety switches all live in the app under Heartbeat → Settings, and take effect without a restart.</p>
+      <div class="hosts">
+        <a href="https://github.com/fletcher-fortis/fletcher-fortis/blob/main/docs/SELF-HOSTING.md"><b>Home server</b><span>Docker or Portainer, Cloudflare Tunnel. More sites answer from home IPs.</span></a>
+        <a href="https://github.com/fletcher-fortis/fletcher-fortis/blob/main/docs/CLOUD.md"><b>$5 VPS</b><span>Hetzner, DigitalOcean, Vultr. HTTPS through the bundled Caddy.</span></a>
+        <a href="https://github.com/fletcher-fortis/fletcher-fortis/blob/main/docs/CLOUD.md#flyio"><b>Fly.io</b><span>One machine, a 1 GB volume, one secret.</span></a>
+        <a href="https://github.com/fletcher-fortis/fletcher-fortis/blob/main/docs/CLOUD.md#railway"><b>Railway</b><span>Deploy from the repo and add a volume.</span></a>
+      </div>
+    </div>
+    <div class="term" role="group" aria-label="Install commands">
+      <div class="term-h"><i></i><i></i><i></i><span>bash</span><button class="copy" type="button" data-copy="git clone https://github.com/fletcher-fortis/fletcher-fortis.git && cd fletcher-fortis
+docker compose up -d
+open http://localhost:8080">Copy</button></div>
+<pre><code><span class="c"># 1. get the code</span>
+<span class="p">$</span> git clone https://github.com/fletcher-fortis/fletcher-fortis.git && cd fletcher-fortis
+<span class="c"># 2. start it (dry run is on)</span>
+<span class="p">$</span> docker compose up -d
+<span class="c"># 3. open the setup wizard</span>
+<span class="p">$</span> open http://localhost:8080</code></pre>
+      <div class="term-f">Needs about 1 GB RAM. Email through Resend (free tier) and Cloudflare Email Routing (free).</div>
+    </div>
+  </div>
+</section>
+
+<section id="security" class="sec">
+  <div class="wrap">
+    <p class="kicker">Privacy and security</p>
+    <h2>Built to hold the data it removes.</h2>
+    <p class="sub">A removal tool knows exactly what you're trying to hide, so it's designed to leak as little as possible if anything goes wrong.</p>
+    <div class="grid3 sec-grid">
+      <div><h3>Encrypted at rest</h3><p>Every personal field is encrypted with AES-256-SIV under a key only you hold. A copy of the volume alone is unreadable.</p></div>
+      <div><h3>No identity documents</h3><p>The app refuses Social Security numbers, full dates of birth and ID numbers. The schema has nowhere to put them.</p></div>
+      <div><h3>Locked-down container</h3><p>Non-root user, read-only filesystem, all Linux capabilities dropped. Only the data volume is writable.</p></div>
+      <div><h3>Hardened web app</h3><p>Server-side sessions, bcrypt passwords, login rate limits, CSRF tokens and a strict Content-Security-Policy.</p></div>
+      <div><h3>Family-scoped access</h3><p>Members see only their own profile and listings. Only the admin can turn sending on.</p></div>
+      <div><h3>No telemetry</h3><p>The app talks only to broker sites and your email provider. Nothing else phones home.</p></div>
+    </div>
+    <p class="legal">Requests are sent as an authorized agent, only for people who signed the authorization themselves. Use it for yourself and family members who agree. Not legal advice.</p>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <div class="oss">
+      <div>
+        <h2>Open source, MIT licensed.</h2>
+        <p>Read every request it sends. Add a site definition, fix a matcher, translate the UI. Tests run against local mock sites and never contact real brokers.</p>
+      </div>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/fletcher-fortis/fletcher-fortis">Star on GitHub</a>
+        <a class="btn" href="https://github.com/fletcher-fortis/fletcher-fortis#contributing">Contribute</a>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <div class="brand"><svg class="mark" viewBox="0 0 38 48" fill="currentColor" aria-hidden="true"><path d="M19 30.5C25.9036 30.5 31.5 36.0964 31.5 43H26.5C26.5 38.8579 23.1421 35.5 19 35.5C14.8579 35.5 11.5 38.8579 11.5 43H6.5C6.5 36.0964 12.0964 30.5 19 30.5ZM0 11.5C6.90356 11.5 12.5 17.0964 12.5 24C12.5 30.9036 6.90356 36.5 0 36.5V31.5C4.14214 31.5 7.5 28.1421 7.5 24C7.5 19.8579 4.14214 16.5 0 16.5V11.5ZM38 16.5C33.8579 16.5 30.5 19.8579 30.5 24C30.5 28.1421 33.8579 31.5 38 31.5V36.5C31.0964 36.5 25.5 30.9036 25.5 24C25.5 17.0964 31.0964 11.5 38 11.5V16.5ZM11.5 5C11.5 9.14214 14.8579 12.5 19 12.5C23.1421 12.5 26.5 9.14214 26.5 5H31.5C31.5 11.9036 25.9036 17.5 19 17.5C12.0964 17.5 6.5 11.9036 6.5 5H11.5Z"/></svg><span>Fletcher Fortis</span></div>
+    <nav aria-label="Footer">
+      <a href="https://github.com/fletcher-fortis/fletcher-fortis">GitHub</a>
+      <a href="https://github.com/fletcher-fortis/fletcher-fortis/blob/main/SECURITY.md">Security</a>
+      <a href="https://github.com/fletcher-fortis/fletcher-fortis/blob/main/docs/SELF-HOSTING.md">Docs</a>
+      <a href="https://github.com/fletcher-fortis/fletcher-fortis/blob/main/LICENSE">MIT License</a>
+    </nav>
+    <p>Not affiliated with any data broker. Not legal advice.</p>
+  </div>
+</footer>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

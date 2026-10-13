@@ -1,0 +1,53 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, avatar, pill, label with context %}{% block title %}Family & accounts{% endblock %}{% block body %}
+<div class="flex flex-wrap items-end gap-4 mb-5 px-1">
+ <div><h1 class="text-[36px] leading-[1.05] font-medium tracking-[-0.045em]">Family &amp; accounts</h1>
+ <p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-1.5">Each person signs in with their own account and sees only their own profile and listings. You see everyone.</p></div>
+ <div class="ml-auto flex flex-wrap gap-2"><form method="post" action="/family/generate-logins">{{csrf()}}<button class="btn" data-confirm="Create a login with a random one-time password for every family member who doesn't have one yet (and reset unused ones)? Passwords are shown once.">{{icon('key')}}Passwords for everyone</button></form>
+ <a href="/add" class="btn">{{icon('plus')}}Add without email</a><a href="#invite" class="btn-p">{{icon('mail')}}Invite member</a></div></div>
+<section id="invite" class="tile mb-3 scroll-mt-6"><form method="post" action="/family/onboard" class="card-w p-4 flex flex-col lg:flex-row lg:items-end gap-3">{{csrf()}}
+ <div class="lg:w-[260px] shrink-0"><div class="text-[14px] font-semibold">Invite a family member</div><div class="text-[12.5px] text-stone-500">They get a welcome email, set a password, check their details and draw their signature. No public signup.</div></div>
+ <div class="flex-1 min-w-0"><label class="flabel" for="iv-n">Full name</label><input class="input" id="iv-n" name="full_name" required maxlength="80" placeholder="First Last" autocomplete="off"></div>
+ <div class="flex-1 min-w-0"><label class="flabel" for="iv-e">Email</label><input class="input" id="iv-e" name="email" type="email" required maxlength="200" placeholder="name@example.com" autocomplete="off"></div>
+ <button class="btn-p">{{icon('mail')}}Send invite</button></form></section>
+{% if generated is not none %}<div class="tile mb-3"><div class="card-w p-4 ring-1 ring-emerald-200 dark:ring-emerald-400/20">
+ <div class="flex items-center gap-2 text-[14px] font-semibold">{{icon('key')}}{{'Logins created' if generated else 'Nothing to generate'}}</div>
+ {% if generated %}<div class="text-[12.5px] text-stone-500 mt-0.5 mb-3">Shown <b>once</b>. Give each person their password privately; they choose their own at first sign-in. Leaving this page hides them for good.</div>
+ <div class="overflow-x-auto"><table class="w-full text-[13px]"><thead><tr class="text-left text-[11.5px] text-stone-400"><th class="font-normal py-1.5 pr-4">Member</th><th class="font-normal py-1.5 pr-4">Username</th><th class="font-normal py-1.5">One-time password</th></tr></thead><tbody>
+ {% for pid, name, user, pw in generated %}<tr class="border-t border-stone-100 dark:border-white/[.07]"><td class="py-2 pr-4 font-medium whitespace-nowrap">{{name}}</td><td class="py-2 pr-4 font-mono">{{user}}</td><td class="py-2"><div class="flex items-center gap-2"><input id="gp-{{pid}}" readonly class="input !h-8 font-mono !text-[12.5px] max-w-[300px]" value="{{pw}}"><button type="button" class="btn !h-8" data-copy="gp-{{pid}}">{{icon('copy')}}<span>Copy</span></button></div></td></tr>{% endfor %}</tbody></table></div>
+ {% else %}<div class="text-[12.5px] text-stone-500 mt-0.5">Every member already has a login that is in use (or is the admin).</div>{% endif %}</div></div>{% endif %}
+{% if err %}<div role="alert" class="mb-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-4 py-3 text-[13px] text-rose-700 dark:text-rose-300 flex gap-2 items-center">{{icon('alert')}}{{err}}</div>{% endif %}
+{% if invite_link %}<div class="tile mb-3"><div class="card-w p-4 flex flex-col sm:flex-row sm:items-center gap-3 ring-1 ring-emerald-200 dark:ring-emerald-400/20">
+ <span class="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-400/10 text-emerald-600 grid place-items-center shrink-0">{{icon('link')}}</span>
+ <div class="min-w-0 flex-1"><div class="text-[14px] font-semibold">{{'Invite emailed' if sent == 'sent' else 'Invite link ready'}}</div><div class="text-[12.5px] text-stone-500">{% if sent == 'sent' %}The welcome email is on its way. You can also share this link yourself.{% elif sent %}Email: {{sent}}. Copy the link and send it yourself (text or in person).{% else %}Send it to them yourself (text or in person).{% endif %} It works once and expires in 72 hours.</div>
+  <input id="inv" readonly class="input mt-2 font-mono !text-[12px]" value="{{invite_link}}"></div>
+ <button class="btn" data-copy="inv">{{icon('copy')}}<span>Copy</span></button></div></div>{% endif %}
+<div class="grid md:grid-cols-2 2xl:grid-cols-4 gap-3">
+{% for p in people %}{% set u = users.get(p.id) %}{% set s = stats[p.id] %}
+ <section class="tile flex flex-col"><div class="card-w p-4 flex-1 flex flex-col">
+  <div class="flex items-center gap-3">{{avatar(p,'w-11 h-11 text-[14px]')}}<div class="min-w-0"><a href="/person/{{p.id}}" class="text-[15px] font-semibold hover:underline truncate block">{{p.full_name}}</a>
+   <div class="text-[12px] text-stone-500 truncate">{{[p.city, p.state]|select|join(', ') or 'Location not set'}}</div></div>
+   <span class="ml-auto">{% if u and u.role == 'admin' %}{{pill('Admin','blue')}}{% elif u and u.pw_hash %}{{pill('Member','green')}}{% elif u %}{{pill('Invited','amber')}}{% else %}{{pill('No account','gray')}}{% endif %}</span></div>
+  <div class="grid grid-cols-3 gap-2 mt-4 text-center">{% for k, lab in [('candidate','To review'),('submitted','Sent'),('confirmed_removed','Removed')] %}<div class="rounded-xl bg-stone-50 dark:bg-white/[.04] py-2"><div class="text-[18px] font-medium num">{{s.get(k,0)}}</div><div class="text-[11px] text-stone-500">{{lab}}</div></div>{% endfor %}</div>
+  <div class="mt-4 divide-y divide-stone-100 dark:divide-white/[.07] text-[12.5px]">
+   <div class="flex items-center justify-between py-2"><span class="text-stone-500">Username</span><span class="font-mono">{{('@' ~ u.username) if u else '—'}}</span></div>
+   <div class="flex items-center justify-between py-2"><span class="text-stone-500">Last sign-in</span><span class="font-mono">{{(u.last_login or 'never')[:10] if u else '—'}}</span></div>
+   <div class="flex items-center justify-between py-2"><span class="text-stone-500">Authorization</span>{% if not p.needs_auth %}{{pill('Not needed','gray')}}{% elif has_auth(p) %}{{pill('E-signed' if p.esign_at else 'PDF on file','green')}}{% else %}{{pill('Not signed','amber')}}{% endif %}</div>
+   <div class="flex items-center justify-between py-2"><span class="text-stone-500">Sending</span><form method="post" action="/person/{{p.id}}/toggle/send_enabled">{{csrf()}}<button class="pill {{'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/20' if p.send_enabled else 'bg-stone-100 text-stone-600 ring-stone-200 dark:bg-white/[.06] dark:text-neutral-400 dark:ring-white/10'}}" {% if not p.send_enabled %}data-confirm="Enable sending for {{p.first}}? Approved removals will be sent when DRY_RUN is off."{% endif %}>{{'Enabled' if p.send_enabled else 'Off · enable'}}</button></form></div>
+   <div class="py-2"><form method="post" action="/person/{{p.id}}/sender" class="flex flex-col gap-1.5">{{csrf()}}<label class="text-stone-500" for="sf-{{p.id}}">Send-from / reply email</label>
+    <div class="flex gap-2"><input id="sf-{{p.id}}" name="send_from" type="email" class="input !h-8 font-mono !text-[12px]" value="{{p.send_from or ''}}" placeholder="{{FROM_ADDRESS}}" {{'disabled' if not provider_ready()}}><button class="btn !h-8" {{'disabled' if not provider_ready()}}>Save</button></div>
+    {% if not provider_ready() %}<span class="text-[11.5px] text-stone-400">Available once email is set up. Until then everyone sends from {{FROM_ADDRESS}}.</span>{% endif %}</form></div></div>
+  {% if not u or u.role != 'admin' %}
+  <details class="mt-auto pt-3 group" {{'open' if who == p.id}}><summary class="btn w-full cursor-pointer list-none">{{icon('key')}}{{'Manage account' if u else 'Create account'}}</summary>
+   <div class="pt-3 flex flex-col gap-2">
+    <form method="post" action="/family/{{p.id}}/account" class="flex flex-col gap-2">{{csrf()}}<input type="hidden" name="action" value="invite">
+     {% if not u %}<label class="flabel !mb-0" for="un-{{p.id}}">Username</label><input class="input" id="un-{{p.id}}" name="username" value="{{p.id}}" pattern="[a-z0-9._\-]{3,32}" required>{% endif %}
+     <button class="btn-p w-full">{{icon('link')}}{{'New invite link' if u else 'Create account + invite link'}}</button></form>
+    <form method="post" action="/family/{{p.id}}/account" class="flex gap-2">{{csrf()}}<input type="hidden" name="action" value="password">{% if not u %}<input type="hidden" name="username" value="{{p.id}}">{% endif %}
+     <input class="input" name="password" type="password" minlength="12" placeholder="…or set a first password" autocomplete="new-password" aria-label="Initial password" required><button class="btn">Set</button></form>
+    <p class="text-[11.5px] text-stone-500">They'll be asked to choose their own password at first sign-in.</p>
+    {% if u %}<form method="post" action="/family/{{p.id}}/account">{{csrf()}}<input type="hidden" name="action" value="remove"><button class="btn w-full !text-rose-600" data-confirm="Remove {{p.first}}'s account? Their profile and listings stay.">{{icon('trash')}}Remove account</button></form>{% endif %}
+   </div></details>
+  {% else %}<div class="mt-auto pt-3"><a href="/account/password" class="btn w-full">{{icon('key')}}Change my password</a></div>{% endif %}
+ </div></section>
+{% endfor %}</div>
+{% endblock %}
