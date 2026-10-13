@@ -1,5 +1,5 @@
 .env
-data/
+/data/
 config/profiles/*.yaml
 !config/profiles/example.yaml
 __pycache__/
