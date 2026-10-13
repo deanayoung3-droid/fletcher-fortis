@@ -6,7 +6,7 @@ Fletcher Fortis searches 430+ people-search and data-broker sites for each perso
 
 ![Overview: exposures found, removals in progress, removed and reappeared, with a weekly found-vs-removed chart](docs/screenshots/overview.png)
 
-<p align="center"><a href="#quickstart">Quickstart</a> · <a href="#how-it-works">How it works</a> · <a href="#security-model">Security</a> · <a href="#faq">FAQ</a> · <a href="https://fletcher-fortis.github.io/fletcher-fortis/">Website</a></p>
+<p align="center"><a href="#quickstart">Quickstart</a> · <a href="#how-it-works">How it works</a> · <a href="#security-model">Security</a> · <a href="#faq">FAQ</a> · <a href="https://deanayoung3-droid.github.io/fletcher-fortis/">Website</a></p>
 
 ## Why
 
@@ -65,7 +65,7 @@ California residents also get one task for the state's [Delete Request and Opt-o
 You need Docker with Compose. Three commands:
 
 ```bash
-git clone https://github.com/fletcher-fortis/fletcher-fortis.git && cd fletcher-fortis
+git clone https://github.com/deanayoung3-droid/fletcher-fortis.git && cd fletcher-fortis
 docker compose up -d
 open http://localhost:8080
 ```
@@ -192,7 +192,7 @@ See Site coverage in the app, or [`optout/sites.yaml`](optout/sites.yaml). Each 
 - [ ] Optional passkey sign-in
 - [ ] Translations
 
-Ideas and votes are welcome in [Discussions](https://github.com/fletcher-fortis/fletcher-fortis/discussions).
+Ideas and votes are welcome in [Discussions](https://github.com/deanayoung3-droid/fletcher-fortis/discussions).
 
 ## Contributing
 
