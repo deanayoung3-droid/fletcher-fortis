@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation
+import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates
 from db import now, event
 from crypto import enc
 import logsafe; logsafe.install()
@@ -460,6 +460,49 @@ def calls_page(r: Request):
 def sites_page(r: Request, status: str = "", q: str = ""):
     auth.require_admin(r); return T.TemplateResponse(r, "sites.html", {"cov": _coverage(), "fstatus": status, "fq": q})
 
+@app.post("/admin/update/check")
+def update_check(r: Request, _=Depends(csrf)):
+    auth.require_admin(r); updates.check(force=True); return RedirectResponse("/admin/heartbeat#updates", 303)
+
+@app.post("/admin/update/now")
+def update_now(r: Request, _=Depends(csrf)):
+    auth.require_admin(r); res = updates.trigger(); event(C, "update_requested", res); return RedirectResponse("/admin/heartbeat?msg=" + quote(res) + "#updates", 303)
+
+@app.get("/coverage", response_class=HTMLResponse)
+def coverage_page(r: Request, cat: str = ""):
+    """Registered data brokers (state registries) by category, with request status per person."""
+    people = _people(); u = _user()
+    if not u: raise HTTPException(401)
+    reg = registries.load(); cov = regreq.coverage([p["id"] for p in people])
+    rows = []
+    if cat:
+        B = registries.by_id(); ids = [p["id"] for p in people]
+        q = f"SELECT * FROM reg_requests WHERE category=? AND person_id IN ({','.join('?' * len(ids))}) ORDER BY broker, person_id" if ids else None  # nosec B608
+        rows = [(B.get(x["broker"], {"name": x["broker"]}), x) for x in (C.execute(q, [cat, *ids]).fetchall() if q else [])]
+    return T.TemplateResponse(r, "coverage.html", {"people": people, "cov": cov, "reg": reg, "cat": cat, "rows": rows, "S": regreq.STATUS, "on": regreq.enabled(),
+                                                  "ps_sites": len(remover.SITE), "age": registries.age_days(), "admin": u["role"] == "admin"})
+
+@app.post("/coverage/refresh")
+def coverage_refresh(r: Request, _=Depends(csrf)):
+    auth.require_admin(r)
+    def job():
+        res = registries.refresh(); event(db.conn(), "registry_refresh", json.dumps(res)[:1500]); inbound._add_registry()
+    threading.Thread(target=job, daemon=True).start(); event(C, "registry_refresh_started", "manual"); return RedirectResponse("/coverage?refreshing=1", 303)
+
+@app.post("/coverage/import-vt")
+async def coverage_import_vt(r: Request, file: UploadFile = File(...), _=Depends(csrf)):
+    """Vermont's registry has no public bulk download (reCAPTCHA search, login for bulk), so the admin uploads the export."""
+    auth.require_admin(r); data = await file.read(10_000_001)
+    if len(data) > 10_000_000: raise HTTPException(413)
+    ext = ".xlsx" if data[:2] == b"PK" else ".csv"
+    os.makedirs(registries.DIR, exist_ok=True); open(os.path.join(registries.DIR, "vermont" + ext), "wb").write(data)
+    res = registries.refresh(download=False); event(C, "registry_import_vt", json.dumps(res)[:800]); inbound._add_registry()
+    return RedirectResponse("/coverage", 303)
+
+@app.post("/coverage/run")
+def coverage_run(r: Request, _=Depends(csrf)):
+    auth.require_admin(r); res = regreq.tick(); event(C, "registry_tick", json.dumps(res)); return RedirectResponse("/coverage", 303)
+
 @app.post("/inbound/email")
 async def inbound_email(r: Request):
     """Raw RFC822 message from the Cloudflare Email Worker. Disabled (404) unless INBOUND_SECRET is set; the header is compared in constant time."""
@@ -605,7 +648,7 @@ def heartbeat(r: Request, check: str = "", saved: str = "", tab: str = "status",
     auth.require_admin(r); import heartbeat as hb
     people = C.execute("SELECT * FROM people ORDER BY rowid").fetchall()
     return T.TemplateResponse(r, "heartbeat.html", {"status": hb.status(C), "items": golive.checklist(C), "dns": golive.dns_checks() if check else None, "domain": golive.domain(),
-        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE})
+        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached()})
 
 @app.post("/admin/heartbeat/settings")
 async def heartbeat_save(r: Request, _=Depends(csrf)):
@@ -740,6 +783,11 @@ def scheduler():
                 last["scan"] = key; asyncio.run(scanner.run_all())
             if os.environ.get("MAIL_FILTER_ENABLED", "false") == "true" and time.time() - last.get("mail", 0) > 900:
                 last["mail"] = time.time(); mailfilter.run_all()
+            if n.hour == 5 and last.get("update") != n.strftime("%Y-%m-%d"):   # daily release check (cached), auto-update only if enabled
+                last["update"] = n.strftime("%Y-%m-%d"); upd = updates.check(); r_ = updates.auto_tick()
+                if r_: event(db.conn(), "auto_update", f"{upd['current']} -> {upd.get('latest')}: {r_}")
+            if n.hour == 4 and last.get("registries") != n.strftime("%Y-%m-%d") and registries.age_days() >= 30:   # monthly state-registry refresh
+                last["registries"] = n.strftime("%Y-%m-%d"); res = registries.refresh(); event(db.conn(), "registry_refresh", json.dumps(res)[:1500])
             if n.weekday() == 5 and n.hour == 2 and last.get("brokers") != key:
                 last["brokers"] = key; import brokerdb; c, t = brokerdb.merge(refresh=True); bad = brokerdb.check_contacts(); event(db.conn(), "broker_refresh", f"{c} -> {t} merged, {bad} unresolvable")
             if n.weekday() == 0 and n.hour == int(config.get("SUMMARY_HOUR")) and last.get("sum") != key and summary.enabled():   # Monday 08:00 (TZ=America/Los_Angeles)

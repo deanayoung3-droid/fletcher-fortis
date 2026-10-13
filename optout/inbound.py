@@ -37,6 +37,16 @@ def load_allowlist(path=None):
         if h: doms.setdefault(h, set()).add(name)
     return doms
 ALLOW = load_allowlist()
+def _add_registry():
+    """Registered data brokers (request-based) may send confirmations and verification links too."""
+    try:
+        import registries
+        for b in registries.brokers():
+            for h in (b.get("domain"), (b.get("email") or "@").split("@")[1], _host(b.get("optout_url") or "")):
+                h = (h or "").lower().removeprefix("www.")
+                if h and "." in h and not h.endswith(("gmail.com", "aol.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com")): ALLOW.setdefault(h, set()).add("reg:" + b["id"])
+    except Exception: pass
+_add_registry()
 
 def broker_site(host):
     """Return the site ids (set) if host is an allowlisted broker domain or a subdomain of one (no suffix tricks: 'evilspokeo.com' != 'spokeo.com')."""

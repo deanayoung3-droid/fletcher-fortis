@@ -1,5 +1,7 @@
-# Fletcher Fortis: Portainer stack (Stacks > Add stack > Web editor). Uses the image you imported in Images > Import.
-# Optional services are behind compose profiles: COMPOSE_PROFILES=tunnel (Cloudflare Tunnel, default in stack.env.example) or caddy.
+# Fletcher Fortis: Portainer stack (Stacks > Add stack > Web editor). Pulls the published image from GHCR
+# (fallback: build/import the tarball image and set IMAGE=localhost/fletcher-fortis:latest).
+# Optional services are behind compose profiles: COMPOSE_PROFILES=tunnel (Cloudflare Tunnel, default in stack.env.example), caddy,
+# autoupdate (Watchtower sidecar for one-click updates). Manual update: Stacks > fletcher-fortis > Pull and redeploy.
 name: fletcher-fortis
 x-hardening: &hardening
   read_only: true
@@ -9,8 +11,10 @@ x-hardening: &hardening
 services:
   app:
     <<: *hardening
-    image: ${IMAGE:-localhost/fletcher-fortis:latest}
+    image: ${IMAGE:-ghcr.io/deanayoung3-droid/fletcher-fortis:latest}
     user: "10001:10001"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"   # lets the optional Watchtower sidecar update this container only
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       DRY_RUN: ${DRY_RUN:-true}                        # switch off in Heartbeat > Settings when ready
@@ -44,6 +48,8 @@ services:
       SUMMARY_HOUR: ${SUMMARY_HOUR:-8}
       TWILIO_ENABLED: ${TWILIO_ENABLED:-false}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      WATCHTOWER_URL: ${WATCHTOWER_URL:-http://watchtower:8080}   # used only if the autoupdate profile is running
+      WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN:-}       # same token as the sidecar (or paste it in Heartbeat > Settings > Updates)
     volumes:
       - ff-data:/data              # encrypted SQLite, screenshots, signed authorization PDFs, broker DB
       - ff-config:/config:ro       # optional profiles/*.yaml seed (people can also be added in the app)
@@ -82,6 +88,21 @@ services:
     volumes: [caddy-data:/data, caddy-config:/config]
     networks: [ff]
     depends_on: [app]
+
+  watchtower:                     # COMPOSE_PROFILES=autoupdate : updates ONLY the app container (label-scoped), only when asked
+    profiles: [autoupdate]        # via its token-protected HTTP API (Heartbeat > Update now, or daily if Auto-update is on).
+    image: nickfedor/watchtower:latest   # maintained fork of containrrr/watchtower (archived)
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"             # touch only containers labelled com.centurylinklabs.watchtower.enable=true
+      WATCHTOWER_HTTP_API_UPDATE: "true"          # no periodic polling: updates happen only on an authenticated API call
+      WATCHTOWER_HTTP_API_TOKEN: ${WATCHTOWER_TOKEN:-}
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_NO_STARTUP_MESSAGE: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # Docker access lives here only, never in the app container
+    networks: [ff]                # no published ports; reachable only from the app on the internal network
 
 volumes:
   ff-data: {}

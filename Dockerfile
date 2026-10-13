@@ -16,6 +16,7 @@ RUN pip install --break-system-packages -r /app/requirements.txt 2>/dev/null || 
 COPY --from=eraser /eraser /usr/local/bin/eraser
 COPY eraser/data/brokers.yaml /app/brokers.yaml
 COPY config/skip_ids.txt /app/skip_ids.txt
+COPY VERSION /app/VERSION
 COPY brokers/ /app/brokers/
 COPY optout/ /app/optout/
 # non-root user; /data and /config are the only writable paths (root filesystem can be mounted read-only)

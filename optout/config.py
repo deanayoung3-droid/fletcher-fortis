@@ -32,6 +32,8 @@ FIELDS = {
     "AUTO_APPROVE": ("Auto-approve high-confidence matches", "Removals", "bool", "false"),
     "AUTO_APPROVE_MIN": ("Auto-approve minimum match score (0–100)", "Removals", "int", "85"),
     "BLIND_REQUESTS": ("Email blocked sites even without a confirmed listing (blind requests)", "Removals", "bool", "false"),
+    "REGISTRY_REQUESTS": ("Registry brokers (request-based): send deletion + opt-out requests to registered data brokers", "Removals", "bool", "true"),
+    "REGISTRY_PER_HOUR": ("Registry requests per hour (pacing)", "Removals", "int", "25"),
     "AUTO_REFILE": ("Re-file automatically when a listing reappears", "Removals", "bool", "true"),
     "FOLLOWUP_DAYS": ("Reminder after (days)", "Removals", "int", "20"),
     "ESCALATE_DAYS": ("Escalate after (days, CCPA deadline 45)", "Removals", "int", "45"),
@@ -41,6 +43,9 @@ FIELDS = {
     "CAPTCHA_PROVIDER": ("CAPTCHA solver for opt-out forms", "Automation", "select:off=Off|2captcha=2Captcha (about $3 per 1,000 solves)|capsolver=CapSolver (about $1 per 1,000 solves)", "off"),
     "CAPTCHA_API_KEY": ("CAPTCHA solver API key", "Automation", "secret", ""),
     "CAPTCHA_MONTHLY_CAP_USD": ("CAPTCHA monthly budget (USD, hard stop)", "Automation", "int", "5"),
+    "AUTO_UPDATE": ("Install new releases automatically (needs the Watchtower sidecar)", "Updates", "bool", "false"),
+    "WATCHTOWER_TOKEN": ("Watchtower HTTP API token (same as in the stack)", "Updates", "secret", ""),
+    "GITHUB_REPO": ("Release channel (GitHub owner/repo)", "Updates", "text", "deanayoung3-droid/fletcher-fortis"),
     "DRY_RUN": ("Dry run (nothing leaves the server)", "Safety", "bool", "true"),
 }
 SECRET = {k for k, v in FIELDS.items() if v[2] == "secret"}

@@ -137,3 +137,15 @@ Running Fletcher Fortis on the home server means scans leave from your **residen
 
 `PROXY_URL` (stack env) is **optional and off by default**. Leave it empty at home. Set it only if you host somewhere with a datacenter IP and bring your own residential proxy (`http://user:pass@host:port`). Fletcher Fortis never ships or buys one.
 Neither a home IP nor a proxy is used to solve CAPTCHAs: a site that still shows a challenge goes to the **Needs you** queue with a prefilled search link.
+
+## Updating
+Releases are published as multi-arch images (amd64 + arm64) at `ghcr.io/deanayoung3-droid/fletcher-fortis:<version>` and `:latest`.
+Heartbeat → Status → **Version** shows the running version, the latest release (checked once a day) and its changelog.
+On every start the app backs up the encrypted database to `/data/backups/` (newest 5 kept) whenever the version changed, then applies migrations automatically.
+
+- **Portainer (manual):** Stacks → fletcher-fortis → **Pull and redeploy** (or Editor → *Update the stack* with "Re-pull image" on).
+- **Compose (manual):** `docker compose pull && docker compose up -d`.
+- **One-click / automatic (optional):** add `autoupdate` to `COMPOSE_PROFILES` and set `WATCHTOWER_TOKEN` to a long random string.
+  This starts a Watchtower sidecar that only touches the container labelled `com.centurylinklabs.watchtower.enable=true`, has no published port, never polls on its own, and updates only when the app calls its token-protected API: **Update now** in Heartbeat, or daily when *Settings → Updates → Install new releases automatically* is on (off by default).
+  Docker's socket is mounted into the sidecar only, never into the app container.
+- **No registry (fallback):** build or import the tarball image and set `IMAGE=localhost/fletcher-fortis:latest`.

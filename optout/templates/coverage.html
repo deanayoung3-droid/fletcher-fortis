@@ -1,0 +1,40 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, avatar, pill with context %}{% block title %}Broker coverage{% endblock %}{% block body %}
+{% set T = cov.values()|sum(attribute='brokers') %}
+<div class="max-w-[1100px]">
+<div class="flex flex-wrap items-end gap-4 mb-2 px-1"><div><h1 class="text-[36px] leading-[1.05] font-medium tracking-[-0.045em]">Broker coverage</h1>
+ <p class="text-[14px] text-stone-600 dark:text-neutral-300 mt-2 max-w-[700px]">Every registered data broker from the official state registries, by what kind of data they sell. People-search sites are scanned for listings ({{ps_sites}} sites, see <a class="underline underline-offset-2" href="/sites">Site coverage</a>). The rest have nothing public to scan, so each person gets a deletion and opt-out request written for that kind of data, tracked and followed up like any other removal.</p></div>
+ {% if admin %}<div class="ml-auto flex gap-2">
+  <form method="post" action="/coverage/run">{{csrf()}}<button class="btn">{{icon('play')}}Run queue now</button></form>
+  <form method="post" action="/coverage/refresh">{{csrf()}}<button class="btn">{{icon('download')}}Refresh registries</button></form></div>{% endif %}</div>
+
+<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+ <section class="tile"><div class="text-[12.5px] text-stone-500">Registered brokers</div><div class="text-[32px] font-medium tracking-[-0.04em] mt-1" data-total>{{T}}</div><div class="text-[12px] text-stone-500">after removing duplicates across states</div></section>
+ <section class="tile lg:col-span-2"><div class="text-[12.5px] text-stone-500">Registries</div><div class="grid grid-cols-4 gap-2 mt-2">{% for k, lab in [('CA','California'),('OR','Oregon'),('TX','Texas'),('VT','Vermont')] %}
+  <div data-registry="{{k}}"><div class="text-[20px] font-medium tracking-[-0.03em]">{{reg.registry_counts.get(k, 0)}}</div><div class="text-[12px] text-stone-500">{{lab}}</div></div>{% endfor %}</div>
+  <div class="text-[11.5px] text-stone-500 mt-2">Updated {{(reg.generated or '')[:10]}} · refreshed monthly.{% if not reg.registry_counts.get('VT') %} Vermont's search is behind a CAPTCHA and its bulk download needs a login{% if admin %}: <label class="underline underline-offset-2 cursor-pointer">import the file<form method="post" action="/coverage/import-vt" enctype="multipart/form-data" class="hidden" data-autosubmit>{{csrf()}}<input type="file" name="file" accept=".csv,.xlsx" class="sr-only" data-submit-on-change></form></label>{% endif %}.{% endif %}</div></section>
+ <section class="tile"><div class="text-[12.5px] text-stone-500">Request-based queue</div><div class="mt-1">{{pill('On' if on else 'Off', 'green' if on else 'gray')}} {% if DRY %}{{pill('dry run','amber')}}{% endif %}</div><div class="text-[12px] text-stone-500 mt-2">Heartbeat → Settings → Removals. Paced, and only for people who signed their authorization.</div></section>
+</div>
+
+{% set ca = people|selectattr('state','equalto','CA')|list %}{% if ca %}<div class="mt-3 rounded-2xl bg-indigo-50 dark:bg-indigo-400/10 ring-1 ring-indigo-200/70 dark:ring-indigo-400/20 px-4 py-3 text-[13px] text-indigo-900 dark:text-indigo-100 flex gap-2.5" data-drop-note>{{icon('zap','w-4 h-4 mt-0.5 shrink-0')}}<div><b>California DROP.</b> One request on the state's <a class="underline underline-offset-2" href="https://privacy.ca.gov/drop/" target="_blank" rel="noopener noreferrer">Delete Request and Opt-out Platform</a> reaches every broker in the California registry. Brokers registered only in California are marked "Covered by CA DROP" once the person has done it; brokers also registered in other states still get a direct request.</div></div>{% endif %}
+
+<section class="tile !p-0 mt-3 overflow-x-auto"><table class="w-full text-[13px]" data-coverage-table>
+ <thead><tr class="text-left text-[12px] text-stone-500"><th class="px-4 py-3 font-medium">Category</th><th class="px-3 py-3 font-medium text-right">Brokers</th>{% for p in people %}<th class="px-3 py-3 font-medium min-w-[170px]"><span class="inline-flex items-center gap-2">{{avatar(p,'w-6 h-6 text-[10px]')}}{{p.first or p.full_name}}</span></th>{% endfor %}</tr></thead>
+ <tbody>{% for k, c in cov.items() if c.brokers %}<tr class="border-t border-stone-100 dark:border-white/[.07] {{'bg-stone-50 dark:bg-white/[.03]' if cat == k}}" data-cat="{{k}}">
+  <td class="px-4 py-3"><a href="?cat={{k}}" class="font-medium hover:underline">{{c.label}}</a>{% if k == 'people-search' %}<div class="text-[11.5px] text-stone-500">scanned for listings</div>{% endif %}</td>
+  <td class="px-3 py-3 text-right tabular-nums">{{c.brokers}}</td>
+  {% for p in people %}{% set s = c.people.get(p.id, {}) %}{% set n = s.values()|sum %}<td class="px-3 py-3">{% if n %}
+   {% set done = s.get('completed',0) + s.get('covered_by_drop',0) + s.get('people_search',0) %}{% set act = s.get('sent',0) + s.get('dry_run',0) + s.get('acknowledged',0) %}{% set wait = s.get('queued',0) + s.get('blocked_auth',0) %}{% set bad = s.get('needs_info',0) + s.get('denied',0) + s.get('failed',0) %}
+   <div class="flex h-1.5 rounded-full overflow-hidden bg-stone-100 dark:bg-white/[.06]">{% for v, col in [(done,'bg-emerald-500'),(act,'bg-accent-500'),(bad,'bg-rose-500'),(wait,'bg-stone-300 dark:bg-white/20')] %}{% if v %}<span class="{{col}}" style="width:{{(100*v/n)|round(1)}}%"></span>{% endif %}{% endfor %}</div>
+   <div class="text-[11.5px] text-stone-500 mt-1 tabular-nums">{% if done %}{{done}} done · {% endif %}{% if act %}{{act}} {{'written' if DRY else 'sent'}} · {% endif %}{% if bad %}<span class="text-rose-600">{{bad}} need a look</span> · {% endif %}{{wait}} queued{% if s.get('blocked_auth') %} (signature){% endif %}</div>
+  {% else %}<span class="text-[12px] text-stone-400">not planned yet</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody>
+ <tfoot><tr><td colspan="{{2 + people|length}}" class="px-4 py-2.5 text-[11.5px] text-stone-500 border-t border-stone-100 dark:border-white/[.07]"><span class="inline-flex items-center gap-1.5 mr-3"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>Done</span><span class="inline-flex items-center gap-1.5 mr-3"><span class="w-2 h-2 rounded-full bg-accent-500"></span>{{'Written (dry run)' if DRY else 'Sent, waiting for reply'}}</span><span class="inline-flex items-center gap-1.5 mr-3"><span class="w-2 h-2 rounded-full bg-rose-500"></span>Broker asked for more or denied</span><span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-stone-300"></span>Queued</span></td></tr></tfoot>
+</table></section>
+
+{% if cat %}<section class="tile !p-0 mt-3"><div class="px-4 pt-3.5 pb-2 flex items-center"><div class="text-[15px] font-semibold tracking-[-0.02em]">{{cov[cat].label}} brokers</div><a href="/coverage" class="ml-auto text-[12.5px] text-stone-500 hover:underline">Close</a></div>
+ <div class="max-h-[560px] overflow-y-auto"><table class="w-full text-[13px]"><tbody>{% for b, x in rows %}<tr class="border-t border-stone-100 dark:border-white/[.07]">
+  <td class="px-4 py-2"><div class="font-medium">{{b.name}}</div><div class="text-[11.5px] text-stone-500">{{b.domain}} · {{(b.registries or [])|join(', ')}}</div></td>
+  <td class="px-3 py-2 text-[12.5px]">{{(people|selectattr('id','equalto',x.person_id)|first).first}}</td>
+  <td class="px-3 py-2 text-[12px] font-mono text-stone-500 truncate max-w-[260px]">{{x.target or ''}}</td>
+  <td class="px-3 py-2">{% set st = S.get(x.status, (x.status,'gray')) %}{{pill(st[0], st[1])}}{% if x.stage %} {{pill('reminder' if x.stage == 1 else 'escalated','amber')}}{% endif %}</td></tr>
+ {% else %}<tr><td class="px-4 py-6 text-center text-stone-500">Nothing planned yet. The queue fills on the next hourly run, or press Run queue now.</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+</div>{% endblock %}

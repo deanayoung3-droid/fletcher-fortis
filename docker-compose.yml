@@ -1,15 +1,20 @@
 # Quickstart:  docker compose up -d   then open http://localhost:8080 and follow the setup wizard.
 # Everything else (email, domain, schedules, branding) is configured in the app: Heartbeat > Settings.
+# Update: docker compose pull && docker compose up -d   (or add --profile autoupdate for one-click updates in Heartbeat)
 # For HTTPS on a server:  DOMAIN=privacy.example.com docker compose --profile https up -d
 services:
   app:
-    build: .
-    image: fletcher-fortis:latest
+    image: ${IMAGE:-ghcr.io/deanayoung3-droid/fletcher-fortis:latest}
+    build: .                                          # fallback: docker compose build (from source)
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"   # lets the optional Watchtower sidecar update this container only
     env_file: { path: .env, required: false }       # optional; see .env.example
     environment:
       TZ: ${TZ:-UTC}
       DRY_RUN: ${DRY_RUN:-true}                       # nothing is sent until you switch it off in Heartbeat
       COOKIE_SECURE: ${COOKIE_SECURE:-true}           # fine on http://localhost; behind HTTPS in production
+      WATCHTOWER_URL: ${WATCHTOWER_URL:-http://watchtower:8080}   # used only if the autoupdate profile is running
+      WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN:-}       # same token as the sidecar (or paste it in Heartbeat > Settings > Updates)
     user: "10001:10001"
     read_only: true
     cap_drop: [ALL]
@@ -20,6 +25,20 @@ services:
     mem_limit: 1200m
     shm_size: 512m
     restart: unless-stopped
+  watchtower:                     # COMPOSE_PROFILES=autoupdate : updates ONLY the app container (label-scoped), only when asked
+    profiles: [autoupdate]        # via its token-protected HTTP API (Heartbeat > Update now, or daily if Auto-update is on).
+    image: nickfedor/watchtower:latest   # maintained fork of containrrr/watchtower (archived)
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"             # touch only containers labelled com.centurylinklabs.watchtower.enable=true
+      WATCHTOWER_HTTP_API_UPDATE: "true"          # no periodic polling: updates happen only on an authenticated API call
+      WATCHTOWER_HTTP_API_TOKEN: ${WATCHTOWER_TOKEN:-}
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_NO_STARTUP_MESSAGE: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # Docker access lives here only, never in the app container
+    # no published ports; reachable only from the app on the default compose network
   caddy:
     profiles: [https]
     image: caddy:2.10-alpine

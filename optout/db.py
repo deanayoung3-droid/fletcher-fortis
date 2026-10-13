@@ -1,4 +1,4 @@
-import sqlite3, os, datetime
+import sqlite3, os, datetime, re
 from crypto import enc, dec
 DB = os.environ.get("DB_PATH", "/data/optout.db")
 def now(): return datetime.datetime.now().isoformat(timespec="seconds")
@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE NO
 CREATE TABLE IF NOT EXISTS snooze(k TEXT PRIMARY KEY, until TEXT);
 CREATE TABLE IF NOT EXISTS retry(listing_id INTEGER PRIMARY KEY, attempts INT DEFAULT 0, next_at TEXT, last TEXT, kind TEXT DEFAULT 'blocked');
 INSERT OR IGNORE INTO retry(listing_id, attempts, next_at, kind) SELECT id, 0, datetime('now','localtime','+1 day'), 'blocked' FROM listings WHERE status='manual_check';
+CREATE TABLE IF NOT EXISTS reg_requests(id INTEGER PRIMARY KEY, person_id TEXT, broker TEXT, category TEXT, status TEXT, channel TEXT, target TEXT,
+  outbox_id INT, stage INT DEFAULT 0, created TEXT, sent_at TEXT, updated TEXT, reply_kind TEXT, UNIQUE(person_id, broker));
+CREATE TABLE IF NOT EXISTS app_meta(k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, user_id INT NOT NULL, csrf TEXT NOT NULL, created TEXT, expires TEXT, ip TEXT);
 """
 MIGRATE = [("outbox", "listing_id INT"), ("outbox", "reply_to TEXT"), ("people", "profile TEXT"), ("people", "send_enabled INT DEFAULT 0"),
@@ -50,12 +53,38 @@ ENCRYPTED = {"people": ["full_name", "first", "last", "city", "prior_cities", "e
              "listings": ["url", "fields"], "events": ["detail"], "outbox": ["subject", "body", "html"], "users": ["email"],
              "inbox": ["from_addr", "to_addr", "subject", "links", "clicked", "body"], "calls": ["from_num", "detail"]}
 
+def app_version():
+    for p in (os.path.join(os.path.dirname(__file__), "..", "VERSION"), "/app/VERSION"):
+        try: return open(p).read().strip().lstrip("v")
+        except OSError: pass
+    return "0.0.0"
+
+def backup(reason, keep=5):
+    """Consistent copy of the (already field-encrypted) database before a migration. Kept next to the data, 0600, newest `keep` only."""
+    if not os.path.exists(DB): return None
+    d = os.path.join(os.path.dirname(DB), "backups"); os.makedirs(d, mode=0o700, exist_ok=True)
+    out = os.path.join(d, f"optout-{datetime.datetime.now():%Y%m%d-%H%M%S}-{re.sub(r'[^\w.-]', '_', reason)[:40]}.db")
+    src = sqlite3.connect(DB); dst = sqlite3.connect(out)
+    with dst: src.backup(dst)
+    dst.execute("PRAGMA journal_mode=DELETE")      # a single self-contained file
+    src.close(); dst.close(); os.chmod(out, 0o600)
+    for old in sorted(f for f in os.listdir(d) if f.startswith("optout-") and f.endswith(".db"))[:-keep]: os.remove(os.path.join(d, old))
+    return out
+
 def init():
+    """Open the DB, back it up when the app version changed since the last start, then apply migrations (idempotent)."""
+    existed = os.path.exists(DB); ver = app_version()
+    if existed:
+        try:
+            r = sqlite3.connect(DB); old = r.execute("SELECT v FROM app_meta WHERE k='version'").fetchone(); r.close(); old = old[0] if old else "pre-1.0.0"
+        except sqlite3.OperationalError: old = "pre-1.0.0"
+        if old != ver: backup(f"{old}-to-{ver}")
     c = conn(); c.executescript(SCHEMA)
     for t, col in MIGRATE:
         try: c.execute(f"ALTER TABLE {t} ADD COLUMN {col}")
         except sqlite3.OperationalError: pass
-    encrypt_existing(c); c.commit(); return c
+    encrypt_existing(c)
+    c.execute("INSERT INTO app_meta(k,v) VALUES('version',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (ver,)); c.commit(); return c
 
 def encrypt_existing(c):
     """One-time migration: encrypt any plaintext PII left from older versions."""

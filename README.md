@@ -6,7 +6,7 @@ Fletcher Fortis searches 430+ people-search and data-broker sites for each perso
 
 ![Overview: exposures found, removals in progress, removed and reappeared, with a weekly found-vs-removed chart](docs/screenshots/overview.png)
 
-<p align="center"><a href="#quickstart">Quickstart</a> · <a href="#how-it-works">How it works</a> · <a href="#security-model">Security</a> · <a href="#faq">FAQ</a> · <a href="https://deanayoung3-droid.github.io/fletcher-fortis/">Website</a></p>
+<p align="center"><a href="#quickstart">Quickstart</a> · <a href="#how-it-works">How it works</a> · <a href="#security-model">Security</a> · <a href="#faq">FAQ</a> · <a href="https://fletcher-fortis.github.io/fletcher-fortis/">Website</a></p>
 
 ## Why
 
@@ -84,6 +84,7 @@ Keep a copy of that key in your password manager. Without it, the encrypted data
 
 A home server is the best place for it. People-search sites block datacenter IP ranges far more often than home connections, so more sites can be checked automatically.
 
+- **Image:** `ghcr.io/deanayoung3-droid/fletcher-fortis:latest` (amd64 + arm64). Updating, backups and the optional Watchtower sidecar: see [Updating](docs/SELF-HOSTING.md#updating).
 - **Portainer:** Stacks → Add stack → paste [`deploy/portainer-stack.yml`](deploy/portainer-stack.yml), and fill in the variables from [`deploy/stack.env.example`](deploy/stack.env.example). The only required one is `FF_DATA_KEY`.
 - **Remote access:** use Cloudflare Tunnel. You don't need open ports or a public home IP.
 - Step-by-step guide: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).

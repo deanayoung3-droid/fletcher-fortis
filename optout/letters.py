@@ -45,7 +45,17 @@ def seen_points(listings):
         if f.get("age"): ages.add(str(f["age"]))
     return urls[:10], sorted(ages)
 
-def build(p, prof, site, listings, *, agent=True, reply_to="", stage=0, sent_at=None, extra_people=()):
+CATEGORY_ASK = {   # registry brokers with no public listing: what to delete for their kind of data
+ "location": "delete all precise geolocation data, location history, visit and movement records, and every mobile advertising ID (MAID/IDFA/AAID), device ID and IP address linked to them, and stop collecting location data about them from SDKs, partners and bidstream data",
+ "marketing": "delete them from every marketing list, audience segment, data append and co-op file you maintain, add them to your internal suppression list so they are not re-added from other sources, and stop selling, renting or sharing their contact details",
+ "risk": "delete identity, fraud and risk records about them that are not required by law to be kept, tell me which records you are legally required to keep and under which law, and stop selling or sharing those records for marketing or people-search uses",
+ "financial": "delete inferred income, credit, asset, wealth and property data that is not covered by the FCRA or GLBA, opt them out of prescreened and marketing uses of financial data, and tell me which records are exempt and why",
+ "health": "delete all health, medical, pharmacy, condition and wellness data or inferences about them, including consumer health data under Washington's My Health My Data Act and similar laws, and stop selling or sharing it",
+ "people-search": "delete every profile about them and stop compiling a profile from public records or other sources",
+ "other": "delete all personal information you hold about them, and stop selling or sharing it",
+}
+
+def build(p, prof, site, listings, *, agent=True, reply_to="", stage=0, sent_at=None, extra_people=(), category=None):
     """Returns (subject, text, html). stage 0 = initial, 1 = reminder, 2 = escalation."""
     short, cite, days, reg = law(p["state"]); broker = site.get("name") or site.get("id")
     legal = next((n for n in prof["names"] if n["kind"] == "legal"), prof["names"][0] if prof["names"] else {"first": p["first"], "last": p["last"]})
@@ -68,8 +78,16 @@ def build(p, prof, site, listings, *, agent=True, reply_to="", stage=0, sent_at=
           "  2. Opt " + ("them" if agent else "me") + " out of any sale or sharing of personal information, and of targeted advertising and profiling;",
           "  3. Suppress the records so they are not re-listed or re-collected from public sources;",
           "  4. Pass this deletion request to the affiliates, service providers and data partners you sold or shared the data with" + (f", including {net}." if net else ".")]
-    L += ["", "Records to remove:"] + [f"  - {u}" for u in urls] if urls else ["", "Records to remove: every profile matching the identifiers below."]
-    L += ["", "Identifiers (only what your site displays, to locate the records):", f"  - Name: {names[0]}"] + [f"  - Also listed as: {n}" for n in names[1:]] + ([f"  - Location: {city}"] if city else []) + ([f"  - Age shown: {', '.join(ages)}"] if ages else [])
+    if category:   # registered data broker without a public listing: category-specific ask
+        who_ = "them" if agent else "me"
+        L += ["", f"You are registered as a data broker{(' in ' + ', '.join(site.get('registries') or [])) if site.get('registries') else ''}. In particular, please " + CATEGORY_ASK.get(category, CATEGORY_ASK["other"]).replace("them", who_) + "."]
+        L += ["", "Records to remove: every record matching the identifiers below."]
+    else:
+        L += ["", "Records to remove:"] + [f"  - {u}" for u in urls] if urls else ["", "Records to remove: every profile matching the identifiers below."]
+    if category:   # no listing to quote: the minimum a broker needs to find the person (no SSN, DOB or ID numbers)
+        em = list(dict.fromkeys(e for e in (prof.get("emails") or [])[:2] if e)); ph = [profiles.fmt_phone(x) for x in (prof.get("phones") or [])[:1] if x]
+        L += ["", "Identifiers, only to locate the records:", f"  - Name: {names[0]}"] + [f"  - Also known as: {n}" for n in names[1:]] + ([f"  - Location: {city}"] if city else []) + [f"  - Email: {e}" for e in em] + [f"  - Phone: {x}" for x in ph]
+    else: L += ["", "Identifiers (only what your site displays, to locate the records):", f"  - Name: {names[0]}"] + [f"  - Also listed as: {n}" for n in names[1:]] + ([f"  - Location: {city}"] if city else []) + ([f"  - Age shown: {', '.join(ages)}"] if ages else [])
     L += ["", f"Please do not require more verification than the law permits{' (an authorized agent may submit this request; 11 CCR § 7063)' if (p['state'] or '').upper() == 'CA' and agent else ''}. Do not ask for a Social Security number, date of birth or ID: none will be provided, and they are not needed to delete a public listing.",
           f"Please confirm completion in writing within {days} days (by {due:%B %-d, %Y}). Simply reply to this email{f' ({reply_to})' if reply_to else ''}; no portal or phone call is needed.", "", "Thank you,", ("Authorized agent for " + ", ".join(who)) if agent else names[0]]
     text = "\n".join(L)

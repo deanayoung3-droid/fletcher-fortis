@@ -43,6 +43,9 @@ def tick():
         p = c.execute("SELECT * FROM people WHERE id=?", (o["person_id"],)).fetchone(); site = remover.SITE.get(o["site"], {"id": o["site"], "name": o["site"]})
         remover.send_request(c, p, site, o["to_addr"], o["listing_id"], stage=stage, sent_at=o["ts"])
         event(c, "followup_sent" if stage == 1 else "escalation_sent", f"day {d}: {o['to_addr']}", p["id"], o["listing_id"]); out["reminders" if stage == 1 else "escalations"] += 1
+    try:
+        import regreq; out.update({"registry_" + k: v for k, v in regreq.tick().items()})
+    except Exception as e: event(c, "registry_error", f"{type(e).__name__}: {e}"[:200])
     c.commit(); return out
 
 def drop_needed(p):

@@ -60,3 +60,4 @@ document.querySelectorAll('input[type=tel],input[name=phone]').forEach(t=>{if(t.
  document.addEventListener('mouseout',e=>{const g=e.target.closest&&e.target.closest('.chart [data-tip]');if(g&&!g.contains(e.relatedTarget))hide(g)});
  document.addEventListener('focusin',e=>{const g=e.target.closest&&e.target.closest('.chart [data-tip]');if(g)show(g,e)});
  document.addEventListener('focusout',e=>{const g=e.target.closest&&e.target.closest('.chart [data-tip]');if(g)hide(g)});})();
+document.addEventListener('change',e=>{const f=e.target.closest('[data-submit-on-change]');if(f&&f.files.length)f.form.submit()});
