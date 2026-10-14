@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, pill with context %}{% block title %}{{site.name}} · {{p.full_name}}{% endblock %}{% block body %}{% macro fields(rows, pfx) %}<div class="card-w">{% for k, v in rows %}<div class="flex items-center gap-3 px-4 py-2 border-b last:border-0 border-stone-100 dark:border-white/[.07] text-[13px]"><span class="w-40 shrink-0 text-stone-500">{{k}}</span><input id="{{pfx}}{{loop.index}}" readonly value="{{v}}" class="input !h-8 flex-1 min-w-0 font-mono !text-[12.5px]"><button type="button" class="btn !h-8" data-copy="{{pfx}}{{loop.index}}">{{icon("copy","w-3.5 h-3.5")}}<span>Copy</span></button></div>{% endfor %}</div>{% endmacro %}
+<div class="max-w-[760px] mx-auto">
+<div class="flex items-center gap-3.5 mb-5"><a href="/listing/{{l.id}}" class="btn-icon !w-10 !h-10 bg-white dark:bg-neutral-900 ring-1 ring-stone-200 dark:ring-white/10" aria-label="Back">{{icon('back')}}</a>
+ <div class="min-w-0"><h1 class="text-[28px] font-medium tracking-[-0.04em] leading-tight">{{site.name}}: {{'upload a photo ID' if req == 'id' else ('call to opt out' if req == 'phone' else 'finish the opt-out')}}</h1><div class="text-[13px] text-stone-500">Everything is prefilled; only the part the broker requires from a person is left · about {{'3' if req == 'id' else '5'}} minutes</div></div></div>
+<section class="tile mb-3"><ol class="card-w divide-y divide-stone-100 dark:divide-white/[.07] text-[13.5px]">
+{% if req == 'phone' %}
+ <li class="px-4 py-3"><b class="font-medium">1. Call</b> {% if oo.phone %}<a class="font-mono underline" href="tel:{{oo.phone}}">{{oo.phone}}</a>{% else %}the number on <a class="underline" href="{{oo.url or l.url}}" target="_blank" rel="noopener">their opt-out page</a>{% endif %}.</li>
+ <li class="px-4 py-3"><b class="font-medium">2. Say:</b> "I'm calling to opt out and delete my personal information under the California Consumer Privacy Act. My name is {{p.full_name}}{% if p.city %}, in {{p.city}}{% endif %}. The listing is at {{l.url}}." Read the details below if they ask.</li>
+{% else %}
+ <li class="px-4 py-3"><b class="font-medium">1. Open</b> <a class="underline" href="{{oo.url or l.url}}" target="_blank" rel="noopener">{{site.name}}'s opt-out page</a> and paste the details below.</li>
+ <li class="px-4 py-3"><b class="font-medium">2. Upload the ID yourself.</b> Cover the ID number, birth date and photo if the broker allows it; they only need to match your name and address. We never store or send ID documents.</li>
+{% endif %}
+ <li class="px-4 py-3"><b class="font-medium">3. Press Done.</b> We keep re-scanning and mark it removed only when the listing is gone.</li></ol>
+ <form method="post" action="/listing/{{l.id}}/done" class="mt-3 flex justify-end">{{csrf()}}<button class="btn-p">{{icon('check')}}Done</button></form></section>
+<section class="tile mb-3"><div class="px-1 pb-2 text-[15px] font-semibold tracking-[-0.02em]">Prefilled</div>{{fields([('Listing URL', l.url)] + pre.fields, 'as')}}</section>
+{% if agent %}<section class="tile"><div class="px-1 pb-2 text-[15px] font-semibold tracking-[-0.02em]">If they ask who's helping</div>{{fields(agent.items()|list, 'ag')}}</section>{% endif %}
+</div>{% endblock %}

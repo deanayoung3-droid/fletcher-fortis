@@ -18,7 +18,7 @@ import config
 from db import conn, now, event
 
 LABEL = {"scan": "Direct scan", "solver": "CAPTCHA solver", "stealth": "Stealth retry", "proxy": "Residential proxy",
-         "form": "Web form", "email": "Privacy email", "registry": "State registry contact", "blind": "Blind opt-out", "human": "Needs you"}
+         "form": "Web form", "email": "Privacy email", "registry": "State registry contact", "blind": "Blind opt-out", "drop": "CA DROP", "human": "Needs you"}
 DISCOVERY = ("scan", "solver", "stealth", "proxy"); REMOVAL = ("form", "email", "registry", "blind")
 OK = ("found", "not_found", "captcha_solved", "sent", "submitted", "dry_run", "confirmed")
 BLOCKED = ("blocked", "captcha")
@@ -241,6 +241,12 @@ def coverage(person_ids=None, c=None):
     att = {}
     for a in c.execute(f"SELECT * FROM attempts WHERE person_id IN ({q}) ORDER BY id", people):   # nosec B608 (placeholders)
         att.setdefault(a["site"], []).append(a)
+    import remover, drop
+    dropped = [x for x in people if drop.get(x, c)["state"] in ("submitted", "processing", "results")]
+    if dropped:   # one DROP request reaches every California-registered broker
+        for s in scanner.SITES:
+            if (s.get("domain") or "").lower().removeprefix("www.") in remover.CA_REGISTERED:
+                att.setdefault(s["id"], []).append({"id": 0, "method": "drop", "result": "sent", "ts": "", "error": "", "site": s["id"]})
     lst = {}
     for l in c.execute(f"SELECT site, status FROM listings WHERE person_id IN ({q})", people):   # nosec B608
         lst.setdefault(l["site"], []).append(l["status"])

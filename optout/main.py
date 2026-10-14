@@ -628,9 +628,36 @@ def esign_submit(r: Request, pid: str, typed_name: str = Form(""), agree: str = 
     if onboard: return RedirectResponse(f"/person/{pid}/profile?onboard=1", 303)   # required 'Your details' step; the first scan starts after it
     return RedirectResponse(f"/person/{pid}?signed=1", 303)
 
+@app.get("/person/{pid}/drop", response_class=HTMLResponse)
+def drop_page(r: Request, pid: str, msg: str = ""):
+    import drop
+    p = _person_for(r, pid)
+    return T.TemplateResponse(r, "drop.html", {"p": p, "d": drop.get(pid, C), "pre": drop.prefill(p), "agent": drop.agent_disclosure(p), "url": drop.URL, "inbound": remover.reply_to(p), "msg": msg[:200]})
+
+@app.post("/person/{pid}/drop/started")
+def drop_started(r: Request, pid: str, _=Depends(csrf)):
+    import drop
+    _person_for(r, pid); drop.mark(C, pid, "verifying", "opened DROP to verify residency"); return RedirectResponse(drop.URL, 303)
+
+@app.post("/person/{pid}/drop/results")
+def drop_results(r: Request, pid: str, text: str = Form(""), _=Depends(csrf)):
+    import drop
+    _person_for(r, pid); res = drop.parse_results(text[:200000])
+    n = drop.apply_results(C, pid, res) if res else 0
+    return RedirectResponse(f"/person/{pid}/drop?msg=" + quote(f"Imported {len(res)} broker statuses; {n} matched registered brokers." if res else "No broker statuses found in that text."), 303)
+
+@app.get("/listing/{lid}/assist", response_class=HTMLResponse)
+def listing_assist(r: Request, lid: int):
+    import drop
+    l = _listing_for(r, lid); p = C.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone(); site = remover.SITE.get(l["site"], {"name": l["site"]})
+    oo = site.get("optout") if isinstance(site.get("optout"), dict) else {}
+    return T.TemplateResponse(r, "assist.html", {"l": l, "p": p, "site": site, "oo": oo, "req": oo.get("requires"), "pre": drop.prefill(p), "agent": drop.agent_disclosure(p)})
+
 @app.post("/person/{pid}/drop-done")
-def drop_done(r: Request, pid: str, next: str = Form(""), _=Depends(csrf)):
-    _person_for(r, pid); C.execute("UPDATE people SET drop_at=? WHERE id=?", (now(), pid)); C.commit(); event(C, "drop_submitted", "CA DROP request submitted by the person", pid)
+def drop_done(r: Request, pid: str, next: str = Form(""), drop_id: str = Form(""), _=Depends(csrf)):
+    import drop
+    if re.fullmatch(r"[A-Za-z0-9]{8,10}", drop_id.strip()): _person_for(r, pid); drop._save(C, pid, drop_id=crypto.enc(drop_id.strip().upper()))
+    _person_for(r, pid); C.execute("UPDATE people SET drop_at=? WHERE id=?", (now(), pid)); C.commit(); event(C, "drop_submitted", "CA DROP request submitted by the person", pid); drop.mark(C, pid, "submitted", "marked submitted")
     return RedirectResponse(_safe_next(next) if next else f"/person/{pid}", 303)
 
 # ---------- Needs you ----------
@@ -653,8 +680,8 @@ def _needs(show_snoozed=False):
                 robot["retrying"] += 1; robot["next"] = min(robot["next"] or auto[l["id"]][1], auto[l["id"]][1]); continue
             oo = st.get("optout") if isinstance(st.get("optout"), dict) else {}; req = oo.get("requires")
             if l["status"] == "needs_human" and req in ("id", "phone"):
-                add(key, req, f"{name}: {'upload a photo ID' if req == 'id' else 'call to opt out'} for {first}", ("This broker only accepts removal requests with a photo ID. We never store or send ID documents, so the person has to do it on the broker's site." if req == "id" else "This broker only takes opt-outs by phone. A person has to make the call; we'll re-check that the listing is gone."),
-                    [("link", "Open opt-out page", oo.get("url") or l["url"]), ("post", "Done", f"/listing/{l['id']}/done")], name); continue
+                add(key, req, f"{name}: {'upload a photo ID' if req == 'id' else 'call to opt out'} for {first} ({'3' if req == 'id' else '5'} min)", ("This broker only accepts removal requests with a photo ID. We never store or send ID documents, so the person has to do it on the broker's site." if req == "id" else "This broker only takes opt-outs by phone. A person has to make the call; we'll re-check that the listing is gone."),
+                    [("go", "Start (" + ("3" if req == "id" else "5") + " min)", f"/listing/{l['id']}/assist"), ("post", "Done", f"/listing/{l['id']}/done")], name); continue
             if l["status"] == "needs_human" and solver and not remover.DRY: continue   # the solver picks it up on the next hourly run
             if l["status"] == "needs_human":
                 add(key, "captcha", f"Fill in {name}'s opt-out form", f"{name}'s removal form has a CAPTCHA. The optional CAPTCHA solver is off (Heartbeat > Settings > Automation), so a person has to submit it. It usually takes about 2 minutes. When you're done, mark it done and we'll keep re-checking that the listing disappears.",
@@ -669,8 +696,8 @@ def _needs(show_snoozed=False):
             add(f"auth:{p['id']}", "auth", f"Get {first}'s signature", f"Brokers only accept requests from an agent the person authorized themselves, so {first} has to draw their own signature. Until then their removals are paused. Send them an invite, or have them sign in and open Authorization.",
                 [("go", "Invite or resend", f"/family?who={p['id']}")])
         if lifecycle.drop_needed(p):
-            add(f"drop:{p['id']}", "drop", f"California DROP request for {first}", f"One request on the state's Delete Request and Opt-out Platform reaches 500+ registered data brokers at once. The state requires {first} to verify California residency personally, so we can't do it for them. It takes about 5 minutes.",
-                [("link", "Open DROP", "https://privacy.ca.gov/drop/"), ("post", "Done", f"/person/{p['id']}/drop-done")])
+            add(f"drop:{p['id']}", "drop", f"Verify with California (2 min) for {first}", f"California makes {first} confirm residency personally; nobody else may do it. Everything else is ready: the DROP form data is prefilled with copy buttons, the authorized-agent disclosure is written, and the confirmation emails are tracked automatically. One request reaches 650+ registered data brokers.",
+                [("go", "Start (2 min)", f"/person/{p['id']}/drop")])
         GW = {"search": f"These sites kept blocking our search after every automatic retry from this server, so we can't tell whether {first} is listed. Search each one yourself: mark it not listed, or open it if you find {first} and we'll file the removal.",
               "captcha": "These removal forms have a CAPTCHA and the optional solver is off (Heartbeat > Settings > Automation), so a person has to submit them (about 2 minutes each). Mark each one done and we'll keep re-checking that the listing disappears."}
         GT = {"search": "Check {n} blocked sites for " + first, "captcha": "Fill in {n} opt-out forms with a CAPTCHA"}

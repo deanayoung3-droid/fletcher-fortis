@@ -2,6 +2,14 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.1] - 2026-10-14
+### Added
+- **California DROP, automated around the one human step.** California requires the person to verify residency personally (California Identity Gateway, CCPA regs § 7620), and DROP has no public consumer API, so that step and the final Submit stay with the person. Everything else is automated:
+  - Needs you shows a single **Verify with California (2 min)** task. It opens a page with 3 short steps, every DROP field prefilled from the profile with copy buttons, and the **authorized-agent disclosure** (agent name, email, trade name; § 7621) from the signed authorization.
+  - DROP emails (sent to `privacy+<id>@` or forwarded by the person) are picked up by the inbound worker. The DROP ID is stored encrypted and shown masked, and status updates move the tracker: Waiting for residency check → Submitted → Brokers processing → Results in.
+  - The per-broker status list from DROP can be pasted in. Matching registry brokers are marked (deleted, opted out, exempt, record not found), people-search sites get a "CA DROP" attempt, and our own re-scan still decides whether a listing is gone. Coverage counts every California-registered broker as reached once DROP is submitted.
+- **ID-upload and phone-only opt-outs** follow the same pattern: an assist page with the listing URL and every field prefilled, a call script with the number (phone), and clear steps; Needs you shows "(3 min)" / "(5 min)". We never store or send ID documents.
+
 ## [1.3.0] - 2026-10-14
 ### Added
 - **Method chain per broker ("try everything").** Every broker in the roster runs every official channel in order and falls through on a block, CAPTCHA or failure. To find listings: direct scan, then the CAPTCHA solver on the challenge page (reCAPTCHA, hCaptcha, Turnstile), then a stealth browser profile after a backoff, then the optional residential proxy. To remove them: the official web form (parent-company suppression first, CAPTCHA solver when a challenge appears), then the official privacy email with the tailored legal letter, then the state data-broker registry contact, then a blind opt-out for sites that block every search.

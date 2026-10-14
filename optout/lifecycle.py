@@ -55,7 +55,7 @@ def tick():
 
 def drop_needed(p):
     """California residents: one DROP request (residency must be verified by the person on the state site, so it stays a human step)."""
-    return (p["state"] or "").upper() == "CA" and not p["drop_at"]
+    import drop; return drop.needed(p)
 
 LIFECYCLE = [("Scan", "Weekly, plus after every profile edit"), ("Match", "Name, age range, city and relatives scored 0-100"),
              ("Approve", "You approve, or auto-approve high-confidence matches (Heartbeat > Settings)"), ("Channel", "Parent suppression, web form, then privacy email; learns which works per broker"),

@@ -117,7 +117,15 @@ def handle(c, raw: bytes, clicker=_click):
         if len(rows) == 1 or (pid and rows): lid, pid = rows[0]["id"], rows[0]["person_id"]
     if lid and not pid: pid = c.execute("SELECT person_id FROM listings WHERE id=?", (lid,)).fetchone()["person_id"]
     kind = classify(subj, body)
-    if not site and not oid and not pid:   # not a broker and not a reply to one of our requests: junk / phishing triage (labels only, never deleted)
+    import drop
+    if drop.is_drop(sender_dom, subj, body):   # California DROP confirmation / status mail (direct to privacy+<id>@, or forwarded by the person)
+        if not pid:
+            fa = (re.search(r"[\w.+-]+@[\w.-]+", frm) or [""])[0].lower()
+            for r in c.execute("SELECT id, email, profile FROM people").fetchall():
+                emails = {(r["email"] or "").lower()} | {e.lower() for e in (json.loads(r["profile"]).get("emails", []) if r["profile"] else [])}
+                if fa and fa in emails: pid = r["id"]; break
+        kind = drop.ingest(c, pid, subj, body); site = None
+    elif not site and not oid and not pid:   # not a broker and not a reply to one of our requests: junk / phishing triage (labels only, never deleted)
         if JUNK_PHISH.search(subj + " " + body[:3000]) or (sender_dom and any(sender_dom.endswith(x) for x in (".zip", ".mov", ".top", ".xyz"))): kind = "phishing"
         elif JUNK_SPAM.search(subj + " " + body[:3000]) or msg.get("List-Unsubscribe"): kind = "junk"
     # verification links: only https, only allowlisted broker hosts, only if the SENDER is a broker too
