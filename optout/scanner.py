@@ -83,7 +83,10 @@ async def new_context(b):
                               extra_http_headers={"Accept-Language": "en-US,en;q=0.9"})
     await ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     return ctx
-LAUNCH_ARGS = ["--disable-blink-features=AutomationControlled"]
+LAUNCH_ARGS = ["--disable-blink-features=AutomationControlled",
+               # low-memory: one renderer, no GPU, no /dev/shm (tiny on containers), capped V8 heap
+               "--disable-dev-shm-usage", "--disable-gpu", "--renderer-process-limit=1", "--disable-extensions", "--mute-audio",
+               "--no-first-run", "--disable-background-networking", "--disable-component-update", "--js-flags=--max-old-space-size=256"]
 
 def search_url(site, first, last, city, state):
     return site["search_url"].format(first=slug(first), last=slug(last), city=slug(city), state=state,
@@ -305,18 +308,27 @@ async def recheck(page, c):
             event(c, "confirmed_removed", l["url"], l["person_id"], l["id"])
     c.commit()
 
-async def run_all(only_person=None):
+async def run_all(only_person=None, progress=None):
+    """Scan everyone (or one person). Use scanjobs.enqueue() from the app: it serialises scans so only one Chromium runs."""
     from playwright.async_api import async_playwright
     c = conn()
     q = "SELECT * FROM people WHERE enabled=1" + (" AND id=?" if only_person else "")   # nosec B608
     people = c.execute(q, ((only_person,) if only_person else ())).fetchall()
+    total = len(people) * len(SITES); done = found = errors = 0
+    if progress: progress(0, total, 0, 0)
     async with async_playwright() as pw:
-        b = await pw.chromium.launch(**launch_kw()); ctx = await new_context(b); page = await ctx.new_page(); dpage = await ctx.new_page()
-        for p in people:
-            for s in SITES:
-                try: await scan_person(page, c, p, s, dpage)
-                except Exception as e: event(c, "scan_error", f"{s['id']}: {type(e).__name__}", p["id"])
-                await page.wait_for_timeout(DELAY())
-        await recheck(page, c); await b.close()
+        b = await pw.chromium.launch(**launch_kw())
+        try:
+            ctx = await new_context(b); page = await ctx.new_page(); dpage = await ctx.new_page()
+            for p in people:
+                for s in SITES:
+                    try: found += int(await scan_person(page, c, p, s, dpage) or 0)
+                    except Exception as e: errors += 1; event(c, "scan_error", f"{s['id']}: {type(e).__name__}", p["id"])
+                    done += 1
+                    if progress: progress(done, total, found, errors)
+                    await page.wait_for_timeout(DELAY())
+            await recheck(page, c)
+        finally: await b.close()
     event(c, "scan_complete", f"{len(people)} people")
+    return {"done": done, "total": total, "found": found, "errors": errors}
 if __name__ == "__main__": asyncio.run(run_all())

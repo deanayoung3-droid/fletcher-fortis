@@ -12,7 +12,7 @@
    <a href="/person/{{p.id}}/profile" class="btn">{{icon('user')}}<span class="hidden md:inline">Edit profile</span></a>
    <a href="/person/{{p.id}}/proof.zip" class="btn" aria-label="Proof pack">{{icon('download')}}<span class="hidden 2xl:inline">Proof pack</span></a>
    {% if me().role == 'admin' %}<form method="post" action="/person/{{p.id}}/toggle/enabled">{{csrf()}}<button class="btn" aria-label="{{'Pause monitoring' if p.enabled else 'Enable monitoring'}}">{{icon('pause' if p.enabled else 'play')}}<span class="hidden 2xl:inline">{{'Pause monitoring' if p.enabled else 'Enable monitoring'}}</span></button></form>{% endif %}
-   <form method="post" action="/person/{{p.id}}/scan" class="flex-1 sm:flex-none">{{csrf()}}<button class="btn-p w-full">{{icon('scan')}}Scan now</button></form></div>
+{% set sj = scanjob or {} %}{% set running = sj.state in ('queued', 'running') %}   <form method="post" action="/person/{{p.id}}/scan" class="flex-1 sm:flex-none" data-scan-form>{{csrf()}}<button class="btn-p w-full disabled:opacity-60" data-scan-btn {{'disabled' if running}}>{{icon('scan')}}<span data-scan-label>{{('Scanning… ' ~ sj.done ~ ' of ' ~ sj.total ~ ' sites' if sj.total else 'Starting scan…') if running else 'Scan now'}}</span></button></form></div>
  </div>
 
 {% if invite %}{% set iv = invite %}
@@ -28,6 +28,13 @@
   <p class="text-[11.5px] text-stone-400 mt-2">{{iv.note}} No removal is filed until they accept and sign.</p>
  </div></section>
 {% endif %}
+{% set sj = scanjob or {} %}
+ <div id="scan" data-scan-status="/person/{{p.id}}/scan/status" data-scan-state="{{sj.state or ''}}" class="{{'' if sj.state else 'hidden'}} mb-3 rounded-2xl ring-1 ring-stone-200/80 dark:ring-white/10 bg-white dark:bg-neutral-900 px-4 py-3 flex items-center gap-3" role="status" aria-live="polite">
+  <span class="w-8 h-8 rounded-full bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-500">{{icon('scan','w-4 h-4')}}</span>
+  <div class="flex-1 min-w-0"><div class="text-[13.5px] font-medium" data-scan-title>{% if sj.state in ('queued','running') %}Scanning… {{sj.done}} of {{sj.total}} sites{% elif sj.state == 'done' %}Scan finished: {{sj.found}} listing{{'s' if sj.found != 1}} found{% if sj.errors %}, {{sj.errors}} site error{{'s' if sj.errors != 1}}{% endif %}{% elif sj.state == 'error' %}Scan failed ({{sj.error}}){% endif %}</div>
+   <div class="mt-1.5 h-1.5 rounded-full bg-stone-100 dark:bg-white/10 overflow-hidden"><div data-scan-bar class="h-full bg-accent-600 transition-all" style="width:{{ (100 * sj.done / sj.total)|round|int if sj.total else (100 if sj.state == 'done' else 3) }}%"></div></div></div>
+  <a href="/person/{{p.id}}" class="btn !h-8 {{'' if sj.state in ('done','error') else 'hidden'}}" data-scan-refresh>Refresh</a>
+ </div>
  <div class="grid md:grid-cols-3 gap-3 mb-3">
   <div class="relative overflow-hidden rounded-[18px] p-5 min-h-[178px] flex flex-col text-ink {{ 'bg-[radial-gradient(120%_120%_at_0%_0%,#e7e5e4_0%,#ddd6fe_50%,#fde68a_100%)]' if (mc and not exposed) else 'bg-[radial-gradient(120%_120%_at_0%_0%,#c7d2fe_0%,#a5f3fc_45%,#bbf7d0_100%)]' if not exposed else 'bg-[radial-gradient(120%_120%_at_0%_0%,#fed7aa_0%,#fdba74_40%,#fca5a5_100%)]' }} dark:text-white {{'dark:bg-[radial-gradient(120%_120%_at_0%_0%,#312e81_0%,#164e63_55%,#14532d_100%)]' if not exposed else 'dark:bg-[radial-gradient(120%_120%_at_0%_0%,#7c2d12_0%,#9a3412_45%,#7f1d1d_100%)]'}}">
    <div class="flex items-start justify-between"><span class="text-[13px] font-medium opacity-80">{{'Monitoring every week' if p.enabled else 'Monitoring paused'}}</span><span class="w-9 h-9 rounded-xl bg-white/50 dark:bg-white/10 backdrop-blur grid place-items-center">{{icon('shield' if not exposed else 'alert')}}</span></div>

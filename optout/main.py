@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites
+import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites, scanjobs
 from db import now, event
 from crypto import enc
 import logsafe; logsafe.install()
@@ -132,7 +132,7 @@ def _person_for(r, pid):
     return p
 def _rescan(pid, why):
     if os.environ.get("SCAN_ON_EDIT", "true") != "true": return
-    threading.Thread(target=lambda: asyncio.run(scanner.run_all(pid)), daemon=True).start(); event(C, "scan_started", why, pid)
+    if scanjobs.enqueue(pid, why): event(C, "scan_started", why, pid)
 
 # ---------- login / accounts ----------
 def _safe_next(n): return n if n and n.startswith("/") and not n.startswith("//") and "\\" not in n else "/"
@@ -329,7 +329,7 @@ def person(r: Request, pid: str, f: str = "", saved: str = "", signed: str = "",
     if f and f not in STATUS: f = ""
     q = "SELECT * FROM listings WHERE person_id=?" + (" AND status=?" if f else " AND status NOT IN ('not_me','checked_clear')") + " ORDER BY CASE status WHEN 'reappeared' THEN 0 WHEN 'candidate' THEN 1 ELSE 2 END, COALESCE(score,0) DESC, last_seen DESC"  # nosec B608
     return T.TemplateResponse(r, "person.html", {"p": p, "prof": profiles.get(p), "stats": stats(pid), "f": f, "listings": C.execute(q, (pid, f) if f else (pid,)).fetchall(),
-        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p), "delerr": delerr[:10], **_invite_ctx(r, p, inv, ist)})
+        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p), "delerr": delerr[:10], "scanjob": scanjobs.progress(pid), **_invite_ctx(r, p, inv, ist)})
 
 def _invite_email(pid):
     u = db.conn().execute("SELECT email FROM users WHERE person_id=?", (pid,)).fetchone()
@@ -404,8 +404,13 @@ def bulk(r: Request, pid: str, _=Depends(csrf)):
 @app.post("/person/{pid}/scan")
 def scan_now(r: Request, pid: str, _=Depends(csrf)):
     _person_for(r, pid)
-    threading.Thread(target=lambda: asyncio.run(scanner.run_all(pid)), daemon=True).start(); event(C, "scan_started", "manual", pid)
-    return RedirectResponse(f"/person/{pid}", 303)
+    if scanjobs.enqueue(pid, "manual"): event(C, "scan_started", "manual", pid)
+    return RedirectResponse(f"/person/{pid}?scan=1#scan", 303)
+
+@app.get("/person/{pid}/scan/status")
+def scan_status(r: Request, pid: str):
+    _person_for(r, pid); j = scanjobs.progress(pid)
+    return {k: j.get(k) for k in ("state", "done", "total", "found", "errors", "finished", "secs", "error")}
 
 @app.post("/person/{pid}/add-listing")
 def add_listing(r: Request, pid: str, site: str = Form(...), url: str = Form(...), _=Depends(csrf)):
@@ -686,7 +691,7 @@ def heartbeat(r: Request, check: str = "", saved: str = "", tab: str = "status",
     auth.require_admin(r); import heartbeat as hb
     people = C.execute("SELECT * FROM people ORDER BY rowid").fetchall()
     return T.TemplateResponse(r, "heartbeat.html", {"status": hb.status(C), "items": golive.checklist(C), "dns": golive.dns_checks() if check else None, "domain": golive.domain(),
-        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached()})
+        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C)})
 
 @app.post("/admin/heartbeat/settings")
 async def heartbeat_save(r: Request, _=Depends(csrf)):
@@ -962,10 +967,10 @@ def scheduler():
             if time.time() - last.get("life", 0) > 3600:
                 last["life"] = time.time(); res = lifecycle.tick(); SCHED["lifecycle"] = n.isoformat(timespec="seconds")
                 if any(res.values()): event(db.conn(), "lifecycle_run", json.dumps(res))
-                ar = asyncio.run(automation.run_due())
+                with scanjobs.BROWSER: ar = asyncio.run(automation.run_due())
                 if any(ar.values()): event(db.conn(), "automation_run", json.dumps(ar))
             if config.get("SCAN_ENABLED") == "true" and n.weekday() == int(config.get("SCAN_DAY")) and n.hour == int(config.get("SCAN_HOUR")) and last.get("scan") != key:
-                last["scan"] = key; asyncio.run(scanner.run_all())
+                last["scan"] = key; scanjobs.enqueue(None, "weekly")
             if os.environ.get("MAIL_FILTER_ENABLED", "false") == "true" and time.time() - last.get("mail", 0) > 900:
                 last["mail"] = time.time(); mailfilter.run_all()
             if n.hour == 5 and last.get("update") != n.strftime("%Y-%m-%d"):   # daily release check (cached), auto-update only if enabled
