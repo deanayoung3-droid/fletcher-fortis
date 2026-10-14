@@ -210,31 +210,24 @@ def approve(listing_id):
     ok, why = can_send(p)
     if not ok:   # live mode but the admin has not enabled sending for this person: keep it approved and queued
         c.execute("UPDATE listings SET status='approved' WHERE id=?", (listing_id,)); event(c, "queued", why, p["id"], listing_id); c.commit(); return "queued: " + why
-    m, target = method(site, c); new = "submitted"
-    if m == "email":
-        st = send_request(c, p, site, target, listing_id)
-        new = "submitted" if st in ("sent", "dry_run") else "approved"
-    elif m in ("form", "parent"):
-        done = None
-        if m == "parent":
-            done = c.execute("SELECT l.id FROM listings l WHERE l.person_id=? AND l.id<>? AND l.status IN ('submitted','pending','confirmed_removed')", (p["id"], listing_id)).fetchall()
-            done = next((x["id"] for x in done if SITE.get(c.execute("SELECT site FROM listings WHERE id=?", (x["id"],)).fetchone()["site"], {}).get("parent") == site.get("parent")), None)
-        if done: st = f"covered by the {site.get('parent')} parent-company suppression already filed (listing #{done})"
-        elif DRY:
-            st = "dry_run"; _record(c, p, target, "Opt-out web form" + (" (parent suppression)" if m == "parent" else ""), f"DRY_RUN: would open {target}, fill it with this person's identifiers and submit it.", "dry_run", listing_id)
-        else:
-            st = "form autofill started"; new = "approved"
-            threading.Thread(target=_form_job, args=(listing_id, target, False), daemon=True).start()
-    elif m == "captcha_form":
-        import automation
-        if not automation.solver_on(): new = "needs_human"; st = f"CAPTCHA form, complete it yourself: {target}"
-        elif DRY:
-            st = "dry_run"; _record(c, p, target, "Opt-out web form (CAPTCHA solver)", f"DRY_RUN: would open {target}, ask {automation.provider()} to solve the CAPTCHA (about ${automation.PRICE[automation.provider()]:.3f}), fill and submit it.", "dry_run", listing_id)
-        else:
-            st = "form autofill with CAPTCHA solver started"; new = "approved"
-            threading.Thread(target=_form_job, args=(listing_id, target, True, True), daemon=True).start()
-    else:
-        new = "needs_human"; st = "no automated opt-out method known for this site"
+    import chain
+    m, target = method(site, c); new = "submitted"; done = None
+    if m == "parent":
+        done = c.execute("SELECT l.id FROM listings l WHERE l.person_id=? AND l.id<>? AND l.status IN ('submitted','pending','confirmed_removed')", (p["id"], listing_id)).fetchall()
+        done = next((x["id"] for x in done if SITE.get(c.execute("SELECT site FROM listings WHERE id=?", (x["id"],)).fetchone()["site"], {}).get("parent") == site.get("parent")), None)
+    req = chain.human_only(site)
+    if done: st = f"covered by the {site.get('parent')} parent-company suppression already filed (listing #{done})"
+    elif req:
+        new = "needs_human"; st = "this broker only accepts " + ("a photo ID upload" if req == "id" else "a phone call"); chain.record(c, p["id"], site.get("id", l["site"]), "human", "needs_human", st, listing_id)
+    elif DRY:   # walk the method chain: form -> email -> registry contact; stop at the first channel that would go out
+        res, st, meth = chain.run_dry(c, p, l, site)
+        if not res:
+            import automation
+            captcha = any(k == "captcha_form" for _, k, _ in chain.plan(site))
+            new = "needs_human"; st = (f"CAPTCHA form, complete it yourself: {target}" if captcha and not automation.solver_on() else "no automated opt-out method known for this site")
+    else:   # live: the chain runs in the background and falls through on block, CAPTCHA or failure
+        st = "removal chain started (form, then email, then registry contact)"; new = "approved"
+        threading.Thread(target=chain.run_live, args=(listing_id,), daemon=True).start()
     c.execute("UPDATE listings SET status=?, submitted_at=? WHERE id=?", (new, now(), listing_id)); event(c, "approve", st, p["id"], listing_id)
     if new == "submitted":
         for o in _siblings(c, l, site):

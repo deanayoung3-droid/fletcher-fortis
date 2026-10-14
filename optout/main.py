@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites, scanjobs, shots
+import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites, scanjobs, shots, chain
 from db import now, event
 from crypto import enc
 import logsafe; logsafe.install()
@@ -408,7 +408,7 @@ def listing(r: Request, lid: int, retake: str = ""):
     sib = C.execute("SELECT id, site, status FROM listings WHERE person_id=? AND dedupe=? AND id<>?", (l["person_id"], l["dedupe"], lid)).fetchall() if l["dedupe"] else []
     return T.TemplateResponse(r, "listing.html", {"l": l, "p": C.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone(), "siblings": sib,
         "method": remover.method(remover.SITE.get(l["site"], {}))[0], "events": C.execute("SELECT * FROM events WHERE listing_id=? ORDER BY id DESC LIMIT 20", (lid,)).fetchall(),
-        "before": before, "after": after, "shotfail": failed, "allshots": [x for x in shots.for_listing(C, lid) if x["ok"]], "retaking": scanjobs.progress(f"shot:{lid}").get("state") in ("queued", "running") or bool(retake)})
+        "before": before, "after": after, "shotfail": failed, "allshots": [x for x in shots.for_listing(C, lid) if x["ok"]], "retaking": scanjobs.progress(f"shot:{lid}").get("state") in ("queued", "running") or bool(retake), "attempts": chain.for_listing(lid, C), "MLABEL": chain.LABEL})
 
 @app.post("/listing/{lid}/{action}")
 def act(r: Request, lid: int, action: str, next: str = Form(""), _=Depends(csrf)):
@@ -648,6 +648,7 @@ def _needs(show_snoozed=False):
         ls = C.execute("SELECT * FROM listings WHERE person_id=? AND status IN ('needs_human','manual_check','reappeared') ORDER BY status, site", (p["id"],)).fetchall()
         for l in ls:
             st = remover.SITE.get(l["site"], {}); name = st.get("name", l["site"]); key = f"l:{l['id']}"
+            if l["status"] == "manual_check": robot["retrying"] += 1; continue   # blocked search: the method chain keeps trying (stealth, proxy, blind opt-out); shown in Heartbeat > Coverage, not here
             if l["status"] == "manual_check" and l["id"] in auto:
                 robot["retrying"] += 1; robot["next"] = min(robot["next"] or auto[l["id"]][1], auto[l["id"]][1]); continue
             oo = st.get("optout") if isinstance(st.get("optout"), dict) else {}; req = oo.get("requires")
@@ -732,7 +733,7 @@ def heartbeat(r: Request, check: str = "", saved: str = "", tab: str = "status",
     auth.require_admin(r); import heartbeat as hb
     people = C.execute("SELECT * FROM people ORDER BY rowid").fetchall()
     return T.TemplateResponse(r, "heartbeat.html", {"status": hb.status(C), "items": golive.checklist(C), "dns": golive.dns_checks() if check else None, "domain": golive.domain(),
-        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C), "mail": _mail_health()})
+        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C), "mail": _mail_health(), "cov": chain.coverage(c=C), "MLABEL": chain.LABEL})
 
 def _mail_health():
     errs = C.execute("SELECT ts, channel, state FROM outbox WHERE state LIKE 'error%' OR state LIKE 'not sent%' OR (state LIKE 'blocked%' AND state NOT LIKE '%e-signed%') ORDER BY id DESC LIMIT 6").fetchall()

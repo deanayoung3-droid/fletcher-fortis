@@ -2,6 +2,17 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.0] - 2026-10-14
+### Added
+- **Method chain per broker ("try everything").** Every broker in the roster runs every official channel in order and falls through on a block, CAPTCHA or failure. To find listings: direct scan, then the CAPTCHA solver on the challenge page (reCAPTCHA, hCaptcha, Turnstile), then a stealth browser profile after a backoff, then the optional residential proxy. To remove them: the official web form (parent-company suppression first, CAPTCHA solver when a challenge appears), then the official privacy email with the tailored legal letter, then the state data-broker registry contact, then a blind opt-out for sites that block every search.
+- Every attempt is stored (method, result, time, error) and shown on the listing (**Methods tried**) and in Heartbeat › **Coverage**: the best method reached per broker and the overall % covered.
+- New settings: `PROXY_URL` (residential proxy, off unless set; now a Heartbeat setting instead of an environment-only variable) and `STEALTH_RETRY` (default on).
+- `python3 chain.py report [person]` prints coverage totals.
+### Changed
+- Blocked searches no longer go to **Needs you**; the chain keeps trying and the progress shows in Coverage. Needs you is now only for steps that truly need a person: photo ID uploads, phone-only opt-outs, the California DROP residency check, signatures, and CAPTCHA forms when the solver is off and no other channel exists.
+- Blind opt-outs are a step of the chain and are still governed by the existing **blind requests** setting (off by default). Consent is required, DRY_RUN still gates every broker send, and only a re-scan confirms a removal.
+- In live mode, removals whose channels all failed are retried once a day instead of going to Needs you.
+
 ## [1.2.3] - 2026-10-14
 ### Fixed
 - **Email sending (Resend) failed with 403.** Requests had no User-Agent, so Resend's Cloudflare rejected them ("error code: 1010"). Requests now send a `FletcherFortis/<version>` User-Agent, and errors are shown in plain words (for example "Resend 403: domain is not verified").

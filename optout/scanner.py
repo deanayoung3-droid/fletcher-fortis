@@ -17,10 +17,12 @@ def proxy_opts():
     x = urlparse(u); o = {"server": f"{x.scheme}://{x.hostname}:{x.port}"}
     if x.username: o.update(username=x.username, password=x.password or "")
     return o
-def launch_kw():
+def launch_kw(proxy=False):
+    """Direct by default. The proxy is one step of the method chain (chain.py), used only after direct and stealth tries are blocked."""
     kw = {"headless": True, "args": LAUNCH_ARGS}
-    if proxy_opts(): kw["proxy"] = proxy_opts()
+    if proxy and proxy_opts(): kw["proxy"] = proxy_opts()
     return kw
+LAST = {}   # outcome of the latest scan_person call: result found|not_found|blocked|captcha|error|skipped, detail, url, html
 
 GENERIC_JS = r"""([first, last]) => {
   const wr = w => new RegExp('\\b' + w.replace(/[^A-Za-z' -]/g, '') + '\\b', 'i');
@@ -197,12 +199,16 @@ async def _cards(page, site, pairs):
             seen.add(g["text"]); out.append((g["head"], g["text"], g["href"], None))
     return out, False
 
-async def scan_person(page, c, p, site, dpage=None):
-    """Deep scan of one site for one person. Returns the number of matches; logs a scan_result event."""
+async def scan_person(page, c, p, site, dpage=None, chain=False):
+    """Deep scan of one site for one person. Returns the number of matches; logs a scan_result event.
+    chain=True: a block is reported in LAST instead of queuing a manual check, so chain.py can try the next method."""
+    LAST.clear(); LAST.update(result="skipped", detail="", url="", html="")
     prof = profiles.get(p); pairs = profiles.name_pairs(prof)
     hs = (site.get("health") or {}).get("status")
     if not site.get("search_url") and hs == "blocked" and site.get("domain") and not site.get("disabled"):
-        manual_check(c, p, site, f"https://{site['domain']}/", "home page bot check"); c.commit(); return 0
+        LAST.update(result="blocked", detail="home page bot check", url=f"https://{site['domain']}/")
+        if not chain: manual_check(c, p, site, f"https://{site['domain']}/", "home page bot check"); c.commit()
+        return 0
     if not site.get("search_url") or site.get("disabled") or hs == "dead" or not pairs: return 0
     qs = queries(site, prof)
     if not qs: return 0
@@ -214,7 +220,7 @@ async def scan_person(page, c, p, site, dpage=None):
         if err:
             if qi == 0:
                 record_health(site["id"], "dead" if "NAME_NOT_RESOLVED" in err else "unreachable_dc", err)
-                event(c, "scan_error", f"{site['id']}: {err}", p["id"]); c.commit(); return 0
+                event(c, "scan_error", f"{site['id']}: {err}", p["id"]); c.commit(); LAST.update(result="error", detail=err[:160], url=url); return 0
             continue
         stat["queries"] += 1
         for pg in range(MAXP()):
@@ -227,9 +233,13 @@ async def scan_person(page, c, p, site, dpage=None):
             status = resp.status if resp else 0; title = (await page.title()).lower()
             cards, css = await _cards(page, site, pairs)
             if not cards and (status in (401, 403, 429, 503) or any(k in title for k in CHALLENGE)):
+                html = await page.content(); import automation
+                cap = bool(automation.detect(html)) or bool(re.search(r"captcha|verify you are human|are you a robot|press & hold", title + html[:30000], re.I))
+                LAST.update(result="captcha" if cap else "blocked", detail=f"HTTP {status} {title[:60]}", url=page.url, html=html)
                 record_health(site["id"], "blocked", f"HTTP {status} {title[:60]}")
-                event(c, "scan_blocked", f"{site['id']} HTTP {status} '{title[:40]}' -> needs human", p["id"])
-                manual_check(c, p, site, page.url, f"HTTP {status}, {title[:30] or 'bot check'}"); c.commit(); return n
+                event(c, "scan_blocked", f"{site['id']} HTTP {status} '{title[:40]}'" + (" (CAPTCHA)" if cap else ""), p["id"])
+                if not chain: manual_check(c, p, site, page.url, f"HTTP {status}, {title[:30] or 'bot check'}"); c.commit()
+                return n
             if not cards and qi == 0 and pg == 0:
                 body = (await page.inner_text("body"))[:20000] if status else ""
                 if NOT_FOUND.search(body) or NOT_FOUND.search(title) or status == 404: record_health(site["id"], "works", f"HTTP {status} not-found signal")
@@ -280,7 +290,7 @@ async def scan_person(page, c, p, site, dpage=None):
                         except Exception: pass
                     await shots.capture(page, {"id": lid, "person_id": p["id"]}, kind, qf, ql, el=el, c=c)
                 n += 1
-    stat["match"] = n
+    stat["match"] = n; LAST.update(result="found" if n else "not_found", detail=f"{stat['queries']} searches, {n} match")
     event(c, "scan_result", f"{site['id']}: {stat['queries']} searches, {stat['pages']} pages, {stat['details']} detail pages, {stat['cards']} cards, {stat['name']} name hits, {n} match, out-of-range ages {stat['age_reject'][:8]}, wrong city {stat['city_reject']}", p["id"])
     c.commit(); return n
 
@@ -291,7 +301,7 @@ def same_site(href, page_url, site):
     host = (h.hostname or "").removeprefix("www.")
     return h.scheme in ("http", "https") and bool(host) and (host == base or host == dom or host.endswith("." + dom))
 
-import shots
+import shots, chain
 def hashlib_short(s):
     import hashlib; return hashlib.sha256(s.encode()).hexdigest()[:16]
 
@@ -327,7 +337,7 @@ async def run_all(only_person=None, progress=None):
             ctx = await new_context(b); page = await ctx.new_page(); dpage = await ctx.new_page()
             for p in people:
                 for s in SITES:
-                    try: found += int(await scan_person(page, c, p, s, dpage) or 0)
+                    try: found += int(await chain.discover(pw, b, page, dpage, c, p, s) or 0)
                     except Exception as e: errors += 1; event(c, "scan_error", f"{s['id']}: {type(e).__name__}", p["id"])
                     done += 1
                     if progress: progress(done, total, found, errors)

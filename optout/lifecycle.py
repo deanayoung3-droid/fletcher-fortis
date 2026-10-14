@@ -23,12 +23,13 @@ def tick():
             remover.approve(l["id"]); event(c, "auto_refiled", "listing came back after removal: new request filed", l["person_id"], l["id"]); out["refiled"] += 1
     # blocked sites: if the broker has a privacy email, send a blind request instead of asking a human to check
     # off by default: no blind opt-outs unless the admin turns BLIND_REQUESTS on in Heartbeat > Settings
-    for l in (c.execute("SELECT * FROM listings WHERE status='manual_check'").fetchall() if config.get("BLIND_REQUESTS", "false") == "true" else []):
-        site = remover.SITE.get(l["site"], {}); ch = dict(remover.channels(site))
-        p = c.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone()
-        if "email" in ch and p and remover.can_send(p)[0]:
-            st = remover.send_request(c, p, site, ch["email"], l["id"])
-            c.execute("UPDATE listings SET status='submitted', submitted_at=? WHERE id=?", (now(), l["id"])); event(c, "blind_request", f"site blocks scans; emailed {ch['email']} ({st})", p["id"], l["id"]); out["blind"] += 1
+    import chain   # blind opt-outs are one step of the method chain; BLIND_REQUESTS still decides (off by default)
+    for l in c.execute("SELECT * FROM listings WHERE status='manual_check'").fetchall():
+        site = remover.SITE.get(l["site"], {}); p = c.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone()
+        if site and p and remover.has_auth(p) and chain.blind(c, p, l, site): out["blind"] += 1
+    if not remover.DRY:   # live: re-run the method chain for removals whose channels all failed last time (at most once a day)
+        for l in c.execute("SELECT id FROM listings WHERE status='approved' AND submitted_at IS NOT NULL AND submitted_at < datetime('now','localtime','-1 day')").fetchall():
+            remover.approve(l["id"]); out["chain_retried"] = out.get("chain_retried", 0) + 1
     import automation
     if automation.solver_on() and not remover.DRY:   # optional CAPTCHA solver: re-try forms that were waiting on a person
         for l in c.execute("SELECT id FROM listings WHERE status='needs_human'").fetchall():
