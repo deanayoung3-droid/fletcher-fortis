@@ -2,13 +2,16 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
-## [Unreleased]
+## [1.1.0] - 2026-10-13
 
 ### Added
 - **First-run setup wizard** (seven steps: admin account, basics, email sending with a test button, inbound replies, optional keys, first person, done). A brand-new install redirects every page to `/setup`, which only opens with a one-time token printed in the container log. Optional steps can be skipped; everything is stored in the database and editable in Heartbeat.
 - **Setup checklist** card on the dashboard until the important items are done (can be hidden).
 - Settings: time zone (`TZ`), state of residence (`HOME_STATE`), update channel (`UPDATE_CHANNEL`: stable or beta).
 - The generated data encryption key is shown once on the Done screen with a "save this key" notice, and its creation is logged.
+
+### Changed
+- Project website: calmer layout with more whitespace, a tighter type scale and fewer borders and shadows; install steps now show how to find the setup link.
 
 ### Unchanged
 - Installs that already have an admin, or set `ADMIN_PASSWORD`, never see the wizard.
