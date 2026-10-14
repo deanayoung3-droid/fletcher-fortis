@@ -138,13 +138,13 @@
     <div class="term" role="group" aria-label="Install commands">
       <div class="term-h"><i></i><i></i><i></i><span>bash</span><button class="copy" type="button" data-copy="git clone https://github.com/deanayoung3-droid/fletcher-fortis.git && cd fletcher-fortis
 docker compose up -d
-open http://localhost:8080">Copy</button></div>
+docker compose logs app | grep &quot;Setup URL&quot;">Copy</button></div>
 <pre><code><span class="c"># 1. get the code</span>
 <span class="p">$</span> git clone https://github.com/deanayoung3-droid/fletcher-fortis.git && cd fletcher-fortis
 <span class="c"># 2. start it (dry run is on)</span>
 <span class="p">$</span> docker compose up -d
-<span class="c"># 3. open the setup wizard</span>
-<span class="p">$</span> open http://localhost:8080</code></pre>
+<span class="c"># 3. open the one-time setup link from the log</span>
+<span class="p">$</span> docker compose logs app | grep "Setup URL"</code></pre>
       <div class="term-f">Needs about 1 GB RAM. Email through Resend (free tier) and Cloudflare Email Routing (free).</div>
     </div>
   </div>
