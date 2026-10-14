@@ -261,22 +261,24 @@ async def scan_person(page, c, p, site, dpage=None):
                             if lo is not None and not (lo <= age2 <= hi): stat["age_reject"].append(age2); continue
                         age = age if age is not None else age2
                 ev = evidence(prof, full_text); sc = score(ev, age); dk = dedupe_key(site, head, age, ev)
-                os.makedirs(SHOTS, exist_ok=True); shot = os.path.join(SHOTS, f"{p['id']}_{site['id']}_{hashlib_short(lurl)}.png")
-                if el is not None:
-                    await el.evaluate("e => { e.style.outline = '3px solid #ef4444'; e.style.outlineOffset = '3px'; }")
-                    box = await el.evaluate("e => { const r = e.getBoundingClientRect(); return {y: r.y + window.scrollY, h: r.height, H: document.documentElement.scrollHeight, W: document.documentElement.scrollWidth}; }")
-                    y = max(0, box["y"] - 80); h = max(200, min(520, box["h"] + 160)); h = min(h, max(1, box["H"] - y))
-                    await page.screenshot(path=shot, full_page=True, clip={"x": 0, "y": y, "width": min(1100, box["W"]), "height": h})
-                else: await page.screenshot(path=shot)
                 fields = enc(json.dumps({"age": age, "snippet": text[:400], "name": head, "query": f"{qf} {ql}", "evidence": ev, "detail": bool(dtext), "extractor": "css" if css else "generic"}))
+                kind = None
                 if row:
                     st = row["status"]
-                    if st == "confirmed_removed": st = "reappeared"; event(c, "ALERT_reappeared", f"{site['name']} {lurl}", p["id"], row["id"])
-                    c.execute("UPDATE listings SET last_seen=?,last_checked=?,screenshot=?,fields=?,status=?,dedupe=?,score=? WHERE id=?", (now(), now(), shot, fields, st, dk, sc, row["id"]))
+                    if st == "confirmed_removed": st = "reappeared"; kind = "retake"; event(c, "ALERT_reappeared", f"{site['name']} {lurl}", p["id"], row["id"])
+                    c.execute("UPDATE listings SET last_seen=?,last_checked=?,fields=?,status=?,dedupe=?,score=? WHERE id=?", (now(), now(), fields, st, dk, sc, row["id"]))
+                    lid = row["id"]
+                    if not kind and not c.execute("SELECT 1 FROM shots WHERE listing_id=? AND ok=1", (lid,)).fetchone(): kind = "before"
                 else:
-                    c.execute("INSERT INTO listings(person_id,site,url,fields,screenshot,first_seen,last_seen,last_checked,dedupe,score) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                              (p["id"], site["id"], enc(lurl), fields, shot, now(), now(), now(), dk, sc))
-                    event(c, "new_candidate", f"{site['name']} (match score {sc})", p["id"])
+                    lid = c.execute("INSERT INTO listings(person_id,site,url,fields,first_seen,last_seen,last_checked,dedupe,score) VALUES(?,?,?,?,?,?,?,?,?)",
+                                    (p["id"], site["id"], enc(lurl), fields, now(), now(), now(), dk, sc)).lastrowid
+                    event(c, "new_candidate", f"{site['name']} (match score {sc})", p["id"]); kind = "before"
+                c.commit()
+                if kind:
+                    if el is not None:
+                        try: await el.evaluate("e => { e.style.outline = '3px solid #ef4444'; e.style.outlineOffset = '3px'; }")
+                        except Exception: pass
+                    await shots.capture(page, {"id": lid, "person_id": p["id"]}, kind, qf, ql, el=el, c=c)
                 n += 1
     stat["match"] = n
     event(c, "scan_result", f"{site['id']}: {stat['queries']} searches, {stat['pages']} pages, {stat['details']} detail pages, {stat['cards']} cards, {stat['name']} name hits, {n} match, out-of-range ages {stat['age_reject'][:8]}, wrong city {stat['city_reject']}", p["id"])
@@ -289,6 +291,7 @@ def same_site(href, page_url, site):
     host = (h.hostname or "").removeprefix("www.")
     return h.scheme in ("http", "https") and bool(host) and (host == base or host == dom or host.endswith("." + dom))
 
+import shots
 def hashlib_short(s):
     import hashlib; return hashlib.sha256(s.encode()).hexdigest()[:16]
 
@@ -304,16 +307,18 @@ async def recheck(page, c):
         gone = (r and r.status in (404, 410)) or not (l["first"].split()[0].lower() in txt and l["last"].lower() in txt)
         c.execute("UPDATE listings SET last_checked=? WHERE id=?", (now(), l["id"]))
         if gone:
-            c.execute("UPDATE listings SET status='confirmed_removed', confirmed_at=? WHERE id=?", (now(), l["id"]))
+            c.execute("UPDATE listings SET status='confirmed_removed', confirmed_at=? WHERE id=?", (now(), l["id"])); c.commit()
+            try: await shots.capture(page, {"id": l["id"], "person_id": l["person_id"]}, "after", l["first"] or "", l["last"] or "", c=c)
+            except Exception: pass
             event(c, "confirmed_removed", l["url"], l["person_id"], l["id"])
     c.commit()
 
 async def run_all(only_person=None, progress=None):
     """Scan everyone (or one person). Use scanjobs.enqueue() from the app: it serialises scans so only one Chromium runs."""
     from playwright.async_api import async_playwright
-    c = conn()
+    c = conn(); shots.ensure(c)
     q = "SELECT * FROM people WHERE enabled=1" + (" AND id=?" if only_person else "")   # nosec B608
-    people = c.execute(q, ((only_person,) if only_person else ())).fetchall()
+    people = [p for p in c.execute(q, ((only_person,) if only_person else ())).fetchall() if p["esign_at"] or p["auth_pdf"]]   # consent first: never scan someone who hasn't signed
     total = len(people) * len(SITES); done = found = errors = 0
     if progress: progress(0, total, 0, 0)
     async with async_playwright() as pw:

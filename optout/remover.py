@@ -44,7 +44,7 @@ Sincerely,
 def can_send(p):
     if not p["enabled"]: return False, "profile disabled"
     if not DRY and not p.get("send_enabled"): return False, "sending not enabled by the family admin yet"
-    if p["needs_auth"] and not has_auth(p): return False, "the person has not e-signed the authorization yet"
+    if not has_auth(p): return False, "the person has not e-signed the authorization yet"
     return True, ""
 
 PROVIDER = os.environ.get("SEND_PROVIDER", "resend").lower()          # resend | smtp (legacy per-person Gmail)
@@ -82,10 +82,24 @@ def _resend(frm, to, rto, subject, body, attach, ref, html=None):
     if html: d["html"] = html
     if attach and os.path.exists(attach):
         d["attachments"] = [{"filename": "signed-authorization.pdf", "content": base64.b64encode(open(attach, "rb").read()).decode()}]
-    rq = urllib.request.Request("https://api.resend.com/emails", json.dumps(d).encode(), {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "Idempotency-Key": ref})
+    rq = urllib.request.Request("https://api.resend.com/emails", json.dumps(d).encode(), {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                                "Idempotency-Key": ref, "User-Agent": USER_AGENT, "Accept": "application/json"})
     try:
         with urllib.request.urlopen(rq, timeout=30) as r: return "sent:" + json.load(r).get("id", "")  # nosec B310
-    except Exception as e: return f"error: {e}"[:200]
+    except urllib.error.HTTPError as e: return "error: " + resend_error(e.code, e.read(2000))
+    except Exception as e: return f"error: {type(e).__name__}: {e}"[:200]
+
+# Resend's API sits behind Cloudflare, which rejects Python's default "Python-urllib" agent with 403 "error code: 1010".
+USER_AGENT = "FletcherFortis/" + (open(os.path.join(os.path.dirname(__file__), "..", "VERSION")).read().strip() if os.path.exists(os.path.join(os.path.dirname(__file__), "..", "VERSION")) else "dev") + " (+https://github.com/deanayoung3-droid/fletcher-fortis)"
+
+def resend_error(code, raw):
+    """Readable, key-free summary of a Resend API error, e.g. 'Resend 403: The fletcherfortis.com domain is not verified...'."""
+    import json
+    txt = (raw or b"").decode("utf-8", "replace").strip()
+    try: j = json.loads(txt); msg = j.get("message") or j.get("name") or txt
+    except ValueError: msg = txt
+    if "1010" in txt and code == 403: msg = "request blocked before reaching Resend (Cloudflare 1010: client not allowed)"
+    return f"Resend {code}: {msg}"[:240]
 
 def send_email(c, p, to, subject, body, attach=None, listing_id=None, html=None, stage=0, channel=None):
     """Every request is written to the outbox first (ref = outbox id), then sent only if DRY_RUN=false and the auth gate passes.

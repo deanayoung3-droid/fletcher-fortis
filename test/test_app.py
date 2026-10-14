@@ -3,7 +3,7 @@ import os, sys, tempfile, pathlib, re, sqlite3, json
 T = tempfile.mkdtemp(); ROOT = pathlib.Path(__file__).resolve().parents[1]
 os.environ.update(DB_PATH=f"{T}/app.db", SHOT_DIR=f"{T}/shots", AUTH_DIR=f"{T}/auth", PROFILES_DIR=str(ROOT / "test/profiles"), SITES_FILE=str(ROOT / "test/sites.test.yaml"),
                   SCHEDULER="false", DRY_RUN="true", ADMIN_USERNAME="alex", ADMIN_PASSWORD="admin correct horse battery", COOKIE_SECURE="false",
-                  FF_DATA_KEY="unit-test-key-0123456789-abcdefghijklmnop", SCAN_ON_EDIT="false", INBOUND_SECRET="s", PUBLIC_URL="http://testserver")
+                  FF_DATA_KEY="unit-test-key-0123456789-abcdefghijklmnop", SCAN_ON_EDIT="false", SCAN_ON_CREATE="false", INBOUND_SECRET="s", PUBLIC_URL="http://testserver")
 sys.path.insert(0, str(ROOT / "optout"))
 import pytest
 from fastapi.testclient import TestClient
@@ -68,6 +68,7 @@ def test_invite_link_single_use(admin):
 
 # ---- permissions ----
 def test_member_sees_only_own(member):
+    c = db.conn(); c.execute("UPDATE people SET esign_at=? WHERE id IN ('sam','alex')", (db.now(),)); c.commit()   # consented: listings unlocked
     d = add_listing("alex"); k = add_listing("sam")
     assert member.get("/").headers["location"] == "/person/sam"
     assert member.get("/person/sam").status_code == 200 and member.get("/person/sam/profile").status_code == 200
@@ -179,7 +180,7 @@ def test_onboarding_invite_flow(admin):
     tok = re.search(r"inv=([\w-]+)", r.headers["location"]).group(1); pid = re.search(r"who=(\w+)", r.headers["location"]).group(1)
     assert "sent=pending" in r.headers["location"]   # no Resend key in tests: invite waits, link shown to the admin
     c = client(); assert c.get(f"/invite/{tok}").status_code == 200
-    r = c.post(f"/invite/{tok}", data={"password": "orchid lantern river 2026", "password2": "orchid lantern river 2026"}); assert r.headers["location"] == f"/person/{pid}/profile?onboard=1"
+    r = c.post(f"/invite/{tok}", data={"password": "orchid lantern river 2026", "password2": "orchid lantern river 2026"}); assert r.headers["location"] == f"/person/{pid}/authorize?onboard=1"   # accept -> sign -> your details -> done
     assert client().get(f"/invite/{tok}").status_code == 404   # single use
 
 def test_letters_by_state():

@@ -6,7 +6,7 @@
  <header class="flex items-center gap-2.5 px-1 mb-6">{{brand('h-8')}}<span class="text-[17px] font-semibold tracking-[-0.035em]">{{APP}}</span>
   <span class="ml-auto text-[12px] text-stone-500 flex items-center gap-1.5">{{icon('shield','w-3.5 h-3.5')}}Dry run is on · nothing is sent</span></header>
  <div class="rounded-[28px] bg-shell dark:bg-black p-2 shadow-[0_30px_80px_-30px_rgba(41,37,36,.35)] ring-1 ring-black/[.04] dark:ring-white/10">
- <div class="grid lg:grid-cols-[260px_1fr] gap-2">
+ <div class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-2 min-w-0">
   <!-- progress -->
   <nav aria-label="Setup progress" class="rounded-[22px] lg:bg-transparent px-4 py-4 lg:px-5 lg:py-6">
    <div class="lg:hidden">
@@ -22,7 +22,7 @@
    <p class="hidden lg:block text-[12px] text-stone-500 leading-relaxed mt-6 px-3">Everything here is saved as you go and can be changed later in <span class="font-medium text-stone-700 dark:text-neutral-300">Heartbeat → Settings</span>.</p>
   </nav>
   <!-- step -->
-  <main class="rounded-[22px] bg-white dark:bg-[#111112] p-6 sm:p-9 min-h-[560px] flex flex-col">
+  <main class="rounded-[22px] bg-white dark:bg-[#111112] p-6 sm:p-9 min-h-[560px] flex flex-col min-w-0">
    <div class="text-[12px] font-mono uppercase tracking-wider text-stone-400">Step {{step}} of {{steps|length}}{{' · optional' if optional}}</div>
    {% if error %}<div role="alert" class="mt-4 rounded-xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-3.5 py-2.5 text-[13px] text-rose-700 dark:text-rose-300 flex gap-2 items-center">{{icon('alert')}}{{error}}</div>{% endif %}
    {% if msg %}<div role="status" class="mt-4 rounded-xl {{'bg-emerald-50 ring-emerald-200 text-emerald-800 dark:bg-emerald-500/10 dark:ring-emerald-500/20 dark:text-emerald-300' if ': sent' in msg else 'bg-amber-50 ring-amber-200/70 text-amber-800 dark:bg-amber-400/10 dark:ring-amber-400/20 dark:text-amber-200'}} ring-1 px-3.5 py-2.5 text-[13px] flex gap-2 items-center">{{icon('mail')}}{{msg}}</div>{% endif %}
@@ -60,10 +60,10 @@
      {% call card(2, "Add your domain in Resend") %}Open <b class="font-medium">Domains → Add domain</b> and enter <span class="font-mono bg-stone-100 dark:bg-white/10 rounded px-1">{{md}}</span>.{% endcall %}
      {% call card(3, "Copy the records into Cloudflare") %}
       In Cloudflare, open <b class="font-medium">{{md}} → DNS → Records → Add record</b> for each row Resend shows. Set <b class="font-medium">Proxy status to DNS only</b> (grey cloud).
-      <div class="mt-3 rounded-xl ring-1 ring-stone-200/80 dark:ring-white/10 overflow-hidden text-[12.5px]">
-       <div class="grid grid-cols-[64px_150px_1fr_84px] gap-2 px-3 py-2 bg-stone-50 dark:bg-white/[.04] text-[11.5px] text-stone-500"><span>Type</span><span>Name</span><span>Value</span><span class="text-right">Status</span></div>
+      <div class="mt-3 rounded-xl ring-1 ring-stone-200/80 dark:ring-white/10 overflow-x-auto text-[12.5px]">
+       <div class="grid grid-cols-[64px_150px_1fr_84px] min-w-[480px] gap-2 px-3 py-2 bg-stone-50 dark:bg-white/[.04] text-[11.5px] text-stone-500"><span>Type</span><span>Name</span><span>Value</span><span class="text-right">Status</span></div>
        {% for k, typ, name, val in dns_rows %}{% set d = dns.get(k) if dns else None %}
-       <div class="grid grid-cols-[64px_150px_1fr_84px] gap-2 px-3 py-2.5 border-t border-stone-100 dark:border-white/[.06] items-start {{'bg-emerald-50/60 dark:bg-emerald-500/[.06]' if d and d.ok}}">
+       <div class="grid grid-cols-[64px_150px_1fr_84px] min-w-[480px] gap-2 px-3 py-2.5 border-t border-stone-100 dark:border-white/[.06] items-start {{'bg-emerald-50/60 dark:bg-emerald-500/[.06]' if d and d.ok}}">
         <span class="font-mono">{{typ}}</span><span class="font-mono break-all">{{name}}</span><span class="font-mono text-stone-600 dark:text-neutral-300 break-all">{{val}}{% if d %}<span class="block text-[11px] text-stone-400 mt-0.5">found: {{d.detail}}</span>{% endif %}</span>
         <span class="text-right">{% if not dns %}<span class="text-stone-400">–</span>{% elif d and d.ok %}<span class="text-emerald-600 dark:text-emerald-400 font-medium inline-flex items-center gap-1">{{icon('check','w-3.5 h-3.5')}}OK</span>{% else %}<span class="text-amber-600 font-medium">Missing</span>{% endif %}</span></div>{% endfor %}
       </div>
@@ -151,6 +151,7 @@
 {% elif step == 7 %}
     <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">You're set up</h1>
     <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">Here's what's configured and what's left. The dashboard keeps this checklist until it's done.</p>
+    {% if firstscan.state in ('queued','running') %}<div class="mt-5 rounded-xl bg-stone-50 dark:bg-white/[.04] ring-1 ring-stone-200/70 dark:ring-white/10 px-4 py-3 text-[13px] flex items-center gap-2.5" role="status">{{icon('scan','w-4 h-4')}}<span><b class="font-medium">First scan running</b>{% if firstscan.total %} · {{firstscan.done}} of {{firstscan.total}} sites{% endif %}. It's read-only: nothing is filed until you approve.</span></div>{% elif firstscan.state == 'done' %}<div class="mt-5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 ring-1 ring-emerald-200 dark:ring-emerald-500/20 px-4 py-3 text-[13px] text-emerald-800 dark:text-emerald-300" role="status">First scan finished: {{firstscan.found}} listing{{'s' if firstscan.found != 1}} found.</div>{% endif %}
     {% if data_key %}
     <div id="key" class="mt-6 rounded-2xl bg-amber-50 dark:bg-amber-400/10 ring-1 ring-amber-200/70 dark:ring-amber-400/20 p-4">
      <div class="flex items-center gap-2 text-[13.5px] font-medium text-amber-900 dark:text-amber-200">{{icon('key')}}Save your encryption key</div>
@@ -167,9 +168,9 @@
 {% endif %}
    </div>
    <!-- nav -->
-   <div class="mt-8 pt-5 border-t border-stone-100 dark:border-white/[.06] flex items-center gap-2">
+   <div class="mt-8 pt-5 border-t border-stone-100 dark:border-white/[.06] flex flex-wrap items-center gap-2">
     {% if step > 1 and me() %}<button class="btn" name="action" value="back" formnovalidate>{{icon('back')}}Back</button>{% endif %}
-    <div class="ml-auto flex items-center gap-2">
+    <div class="ml-auto flex flex-wrap justify-end items-center gap-2">
      {% if optional %}<button class="btn !bg-transparent !ring-0 !shadow-none text-stone-500 hover:text-ink" name="action" value="skip" formnovalidate>Skip for now</button>{% endif %}
      {% if step == 7 %}<a href="/admin/heartbeat" class="btn">{{icon('activity')}}Open Heartbeat</a><button class="btn-p" name="action" value="finish">Go to dashboard{{icon('chev','w-3.5 h-3.5')}}</button>
      {% elif step == 1 and not me() %}<button class="btn-p !h-10 !px-5" name="action" value="next">Create account{{icon('chev','w-3.5 h-3.5')}}</button>

@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites, scanjobs
+import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites, scanjobs, shots
 from db import now, event
 from crypto import enc
 import logsafe; logsafe.install()
@@ -123,15 +123,33 @@ if os.environ.get("TWILIO_ENABLED", "false") == "true": app.include_router(calls
 def _listing_for(r, lid):
     l = C.execute("SELECT * FROM listings WHERE id=?", (lid,)).fetchone()
     if not l: raise HTTPException(404)
-    auth.require_person(r, l["person_id"]); return l
+    auth.require_person(r, l["person_id"])
+    p = C.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone()
+    if p: _require_consent(p)
+    return l
 def _person_for(r, pid):
     if not PID_RE.match(pid or ""): raise HTTPException(404)
     auth.require_person(r, pid)
     p = C.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
     if not p: raise HTTPException(404)
     return p
+FIRST_SCAN = ("new person", "onboarding")
+def consented(p): return remover.has_auth(p)
+CONSENT_MSG = "Waiting for {name} to accept the invite and sign. Nothing will be scanned or removed until then."
+def _require_consent(p):
+    if not consented(p): raise HTTPException(403, CONSENT_MSG.format(name=p["first"] or p["full_name"] or "this person"))
+def _autoscan(pid, why):
+    """First scan right after a person finishes onboarding (signed + details). Never before consent."""
+    if config.get("SCAN_ON_CREATE", "true") != "true": return False
+    p = C.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
+    if not p or not consented(p): return False
+    if scanjobs.enqueue(pid, why): event(C, "scan_started", why, pid); return True
+    return False
+
 def _rescan(pid, why):
     if os.environ.get("SCAN_ON_EDIT", "true") != "true": return
+    p = C.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
+    if not p or not consented(p): return
     if scanjobs.enqueue(pid, why): event(C, "scan_started", why, pid)
 
 # ---------- login / accounts ----------
@@ -173,7 +191,7 @@ def invite_set(r: Request, tok: str, password: str = Form(""), password2: str = 
     if err: return T.TemplateResponse(r, "password.html", {"invite": tok, "uname": u["username"], "error": err, "first": True}, status_code=400)
     c = db.conn(); c.execute("UPDATE users SET pw_hash=?, must_change=0, invite_hash=NULL, invite_expires=NULL WHERE id=?", (auth.hash_pw(password), u["id"])); c.commit()
     auth.end_user_sessions(u["id"]); tok2 = auth.create_session(u["id"], auth.client_ip(r))
-    nxt = f"/person/{u['person_id']}/profile?onboard=1" if not u["onboarded"] else "/"
+    nxt = f"/person/{u['person_id']}/authorize?onboard=1" if not u["onboarded"] else "/"
     resp = RedirectResponse(nxt, 303); auth.set_cookie(resp, tok2); return resp
 
 @app.get("/account/password", response_class=HTMLResponse)
@@ -321,7 +339,7 @@ def _invite_ctx(r, p, inv, ist):
     u = db.conn().execute("SELECT * FROM users WHERE person_id=?", (p["id"],)).fetchone()
     lab, col, det = invites.status(p, u)
     link = invites.link_for(inv, str(r.base_url)) if inv and re.fullmatch(r"[\w-]{20,64}", inv) else None
-    return {"invite": {"label": lab, "color": col, "detail": det, "link": link, "just": ist if ist in ("sent", "pending") else "", "email": _invite_email(p["id"]), "ready": invites.email_ready(), "note": invites.DRY_NOTE}}
+    return {"invite": {"label": lab, "color": col, "detail": det, "link": link, "just": ist if ist in ("sent", "pending", "failed") else "", "email": _invite_email(p["id"]), "ready": invites.email_ready(), "note": invites.DRY_NOTE}}
 
 @app.get("/person/{pid}", response_class=HTMLResponse)
 def person(r: Request, pid: str, f: str = "", saved: str = "", signed: str = "", welcome: str = "", delerr: str = "", inv: str = "", ist: str = ""):
@@ -329,7 +347,7 @@ def person(r: Request, pid: str, f: str = "", saved: str = "", signed: str = "",
     if f and f not in STATUS: f = ""
     q = "SELECT * FROM listings WHERE person_id=?" + (" AND status=?" if f else " AND status NOT IN ('not_me','checked_clear')") + " ORDER BY CASE status WHEN 'reappeared' THEN 0 WHEN 'candidate' THEN 1 ELSE 2 END, COALESCE(score,0) DESC, last_seen DESC"  # nosec B608
     return T.TemplateResponse(r, "person.html", {"p": p, "prof": profiles.get(p), "stats": stats(pid), "f": f, "listings": C.execute(q, (pid, f) if f else (pid,)).fetchall(),
-        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p), "delerr": delerr[:10], "scanjob": scanjobs.progress(pid), **_invite_ctx(r, p, inv, ist)})
+        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p), "delerr": delerr[:10], "scanjob": scanjobs.progress(pid), "thumbs": shots.thumbs(C, [x["id"] for x in C.execute("SELECT id FROM listings WHERE person_id=?", (pid,)).fetchall()]) if consented(p) else {}, "locked": not consented(p), "lock_msg": ("Sign your authorization to start. Nothing will be scanned or removed until then." if r.state.user["person_id"] == pid else CONSENT_MSG.format(name=p["first"] or p["full_name"])), **_invite_ctx(r, p, inv, ist)})
 
 def _invite_email(pid):
     u = db.conn().execute("SELECT email FROM users WHERE person_id=?", (pid,)).fetchone()
@@ -369,20 +387,28 @@ async def profile_save(r: Request, pid: str, _=Depends(csrf)):
     prof, errors = profiles.validate(data)
     if errors:
         return T.TemplateResponse(r, "profile.html", {"p": p, "prof": prof if prof["names"] else profiles.get(p), "errors": errors, "saved": False, "suggested": False, "onboard": bool(form.get("onboard"))}, status_code=400)
+    if form.get("onboard"):
+        cur = [a for a in prof["addresses"] if a.get("current")] or prof["addresses"][:1]
+        req = []
+        if not (cur and cur[0].get("city") and cur[0].get("state")): req.append("Add your current city and state.")
+        if not (prof["phones"] or prof["emails"]): req.append("Add at least one phone number or email.")
+        if req: return T.TemplateResponse(r, "profile.html", {"p": p, "prof": prof, "errors": req, "saved": False, "suggested": False, "onboard": True}, status_code=400)
     profiles.save(C, pid, prof); event(C, "profile_updated", f"{len(prof['names'])} names, {len(prof['addresses'])} addresses, {len(prof['phones'])} phones", pid)
-    _rescan(pid, "profile edited")
     _pp = C.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
-    if form.get("onboard") and _pp["needs_auth"] and not remover.has_auth(_pp) and _can_sign(r, pid):
+    if form.get("onboard") and not consented(_pp) and _can_sign(r, pid):
         return RedirectResponse(f"/person/{pid}/authorize?onboard=1", 303)
-    if form.get("onboard"): _mark_onboarded(r); return RedirectResponse(f"/person/{pid}?welcome=1", 303)
+    if form.get("onboard"):
+        _mark_onboarded(r); _autoscan(pid, "onboarding: details saved"); return RedirectResponse(f"/person/{pid}?welcome=1", 303)
+    if consented(_pp): _rescan(pid, "profile edited")
     return RedirectResponse(f"/person/{pid}?saved=1", 303)
 
 @app.get("/listing/{lid}", response_class=HTMLResponse)
-def listing(r: Request, lid: int):
-    l = _listing_for(r, lid)
+def listing(r: Request, lid: int, retake: str = ""):
+    l = _listing_for(r, lid); before, after, failed = shots.proof(C, lid)
     sib = C.execute("SELECT id, site, status FROM listings WHERE person_id=? AND dedupe=? AND id<>?", (l["person_id"], l["dedupe"], lid)).fetchall() if l["dedupe"] else []
     return T.TemplateResponse(r, "listing.html", {"l": l, "p": C.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone(), "siblings": sib,
-        "method": remover.method(remover.SITE.get(l["site"], {}))[0], "events": C.execute("SELECT * FROM events WHERE listing_id=? ORDER BY id DESC LIMIT 20", (lid,)).fetchall()})
+        "method": remover.method(remover.SITE.get(l["site"], {}))[0], "events": C.execute("SELECT * FROM events WHERE listing_id=? ORDER BY id DESC LIMIT 20", (lid,)).fetchall(),
+        "before": before, "after": after, "shotfail": failed, "allshots": [x for x in shots.for_listing(C, lid) if x["ok"]], "retaking": scanjobs.progress(f"shot:{lid}").get("state") in ("queued", "running") or bool(retake)})
 
 @app.post("/listing/{lid}/{action}")
 def act(r: Request, lid: int, action: str, next: str = Form(""), _=Depends(csrf)):
@@ -391,30 +417,33 @@ def act(r: Request, lid: int, action: str, next: str = Form(""), _=Depends(csrf)
     elif action == "notme": C.execute("UPDATE listings SET status='not_me' WHERE id=?", (lid,)); event(C, "not_me", "", l["person_id"], lid)
     elif action == "clear": C.execute("UPDATE listings SET status='checked_clear', last_checked=? WHERE id=?", (now(), lid)); event(C, "manual_checked_clear", "", l["person_id"], lid); C.execute("DELETE FROM retry WHERE listing_id=?", (lid,)); automation.schedule(C, lid, "recheck")
     elif action == "done": C.execute("UPDATE listings SET status='submitted', submitted_at=? WHERE id=?", (now(), lid)); event(C, "form_done_by_human", "", l["person_id"], lid)
+    elif action == "retake":
+        scanjobs.enqueue_shot(lid); event(C, "shot_retake", "", l["person_id"], lid)
+        return RedirectResponse(f"/listing/{lid}?retake=1#proof", 303)
     elif action == "undo" and l["status"] == "not_me": C.execute("UPDATE listings SET status='candidate' WHERE id=?", (lid,)); event(C, "not_me_undone", "", l["person_id"], lid)
     else: raise HTTPException(400)
     C.commit(); return RedirectResponse(_safe_next(next) if next else f"/person/{l['person_id']}", 303)
 
 @app.post("/person/{pid}/bulk")
 def bulk(r: Request, pid: str, _=Depends(csrf)):
-    auth.require_admin(r); _person_for(r, pid); event(C, "bulk_ccpa_started", "dry run" if remover.DRY else "", pid)
+    auth.require_admin(r); _require_consent(_person_for(r, pid)); event(C, "bulk_ccpa_started", "dry run" if remover.DRY else "", pid)
     threading.Thread(target=remover.bulk_ccpa, args=(pid,), daemon=True).start()   # can run for an hour (rate-limited); never block the request
     return RedirectResponse(f"/person/{pid}", 303)
 
 @app.post("/person/{pid}/scan")
 def scan_now(r: Request, pid: str, _=Depends(csrf)):
-    _person_for(r, pid)
+    _require_consent(_person_for(r, pid))
     if scanjobs.enqueue(pid, "manual"): event(C, "scan_started", "manual", pid)
     return RedirectResponse(f"/person/{pid}?scan=1#scan", 303)
 
 @app.get("/person/{pid}/scan/status")
 def scan_status(r: Request, pid: str):
     _person_for(r, pid); j = scanjobs.progress(pid)
-    return {k: j.get(k) for k in ("state", "done", "total", "found", "errors", "finished", "secs", "error")}
+    return {k: j.get(k) for k in ("state", "done", "total", "found", "errors", "finished", "secs", "error", "why")}
 
 @app.post("/person/{pid}/add-listing")
 def add_listing(r: Request, pid: str, site: str = Form(...), url: str = Form(...), _=Depends(csrf)):
-    _person_for(r, pid)
+    _require_consent(_person_for(r, pid))
     if site not in remover.SITE or not re.match(r"^https?://[^\s]{4,500}$", url): raise HTTPException(400, "Pick a site and paste the full listing URL (https://…).")
     C.execute("INSERT OR IGNORE INTO listings(person_id,site,url,fields,first_seen,last_seen,last_checked) VALUES(?,?,?,?,?,?,?)", (pid, site, enc(url), enc('{"snippet":"added manually"}'), now(), now(), now()))
     C.commit(); return RedirectResponse(f"/person/{pid}", 303)
@@ -423,7 +452,7 @@ def add_listing(r: Request, pid: str, site: str = Form(...), url: str = Form(...
 def proof(r: Request, pid: str):
     """Proof pack: screenshots, every removal request in the outbox, the authorization PDF and a CSV log. Built locally, nothing is sent."""
     import zipfile, io, csv
-    p = _person_for(r, pid)
+    p = _person_for(r, pid); _require_consent(p)
     buf = io.BytesIO(); z = zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED); log = io.StringIO(); w = csv.writer(log)
     w.writerow(["id", "site", "url", "status", "first_seen", "submitted_at", "confirmed_at"])
     for l in C.execute("SELECT * FROM listings WHERE person_id=?", (pid,)):
@@ -486,9 +515,21 @@ def _safe_shot(path):
 def shot(r: Request, lid: int):
     c = db.conn(); l = c.execute("SELECT person_id, screenshot FROM listings WHERE id=?", (lid,)).fetchone(); c.close()
     if not l: raise HTTPException(404)
-    auth.require_person(r, l["person_id"]); sp = _safe_shot(l["screenshot"])
+    auth.require_person(r, l["person_id"]); _require_consent(C.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone()); sp = _safe_shot(l["screenshot"])
     if not sp: raise HTTPException(404)
-    return FileResponse(sp, media_type="image/png", headers={"Cache-Control": "private, max-age=300"})
+    return FileResponse(sp, media_type="image/webp" if sp.endswith(".webp") else "image/png", headers={"Cache-Control": "private, max-age=300"})
+
+@app.get("/shots/{sid}/{variant}")
+def shot_file(r: Request, sid: int, variant: str, download: str = ""):
+    """One capture (full page or the cropped record). Same access rules as the listing: owner or admin, and only after consent."""
+    if variant not in ("full", "crop"): raise HTTPException(404)
+    shots.ensure(C); row = C.execute("SELECT * FROM shots WHERE id=?", (sid,)).fetchone()
+    if not row: raise HTTPException(404)
+    _listing_for(r, row["listing_id"]); sp = shots.path(row, variant)
+    if not sp: raise HTTPException(404)
+    h = {"Cache-Control": "private, max-age=3600"}
+    if download: h["Content-Disposition"] = f'attachment; filename="listing-{row["listing_id"]}-{row["kind"]}-{(row["ts"] or "")[:10]}{"-crop" if variant == "crop" else ""}.webp"'
+    return FileResponse(sp, media_type="image/webp", headers=h)
 
 @app.get("/calls", response_class=HTMLResponse)
 def calls_page(r: Request):
@@ -584,7 +625,7 @@ def esign_submit(r: Request, pid: str, typed_name: str = Form(""), agree: str = 
     C.execute("UPDATE people SET esign_name=?, esign_at=?, esign_ip=?, esign_user=?, esign_sig=? WHERE id=?", (enc(typed_name.strip()), ts, enc(ip), u["username"], enc(json.dumps(strokes)), pid))
     C.execute("UPDATE listings SET status='candidate' WHERE person_id=? AND status='blocked_auth'", (pid,)); C.commit()
     event(C, "auth_esigned", f"@{u['username']}", pid)
-    if onboard: _mark_onboarded(r); return RedirectResponse(f"/person/{pid}?welcome=1", 303)
+    if onboard: return RedirectResponse(f"/person/{pid}/profile?onboard=1", 303)   # required 'Your details' step; the first scan starts after it
     return RedirectResponse(f"/person/{pid}?signed=1", 303)
 
 @app.post("/person/{pid}/drop-done")
@@ -691,7 +732,22 @@ def heartbeat(r: Request, check: str = "", saved: str = "", tab: str = "status",
     auth.require_admin(r); import heartbeat as hb
     people = C.execute("SELECT * FROM people ORDER BY rowid").fetchall()
     return T.TemplateResponse(r, "heartbeat.html", {"status": hb.status(C), "items": golive.checklist(C), "dns": golive.dns_checks() if check else None, "domain": golive.domain(),
-        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C)})
+        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C), "mail": _mail_health()})
+
+def _mail_health():
+    errs = C.execute("SELECT ts, channel, state FROM outbox WHERE state LIKE 'error%' OR state LIKE 'not sent%' OR (state LIKE 'blocked%' AND state NOT LIKE '%e-signed%') ORDER BY id DESC LIMIT 6").fetchall()
+    last_ok = (C.execute("SELECT MAX(ts) t FROM outbox WHERE state='sent'").fetchone() or {}).get("t")
+    inv = db.conn().execute("SELECT invite_error FROM users WHERE invite_state='failed'").fetchall()
+    return {"key": remover.provider_ready(), "from": remover.FROM_ADDRESS, "errors": [dict(ts=e["ts"], channel=e["channel"] or "email", state=e["state"].removeprefix("error: ")) for e in errs],
+            "last_ok": last_ok, "invites_failed": len(inv)}
+
+@app.post("/admin/heartbeat/test-email")
+def heartbeat_test_email(r: Request, _=Depends(csrf)):
+    """Sends one test message to the admin's own address and shows Resend's exact answer. Never goes to a broker."""
+    auth.require_admin(r); to = r.state.user["email"]
+    if not to: return RedirectResponse("/admin/heartbeat?msg=" + quote("Add your email in setup step 1 (Your admin account) first.") + "#mail", 303)
+    st = mailer.send_test(to); event(C, "heartbeat_test_email", st[:200])
+    return RedirectResponse("/admin/heartbeat?msg=" + quote(("Test email sent to your address: " + st) if st.startswith("sent") else ("Test email failed: " + st.removeprefix("error: "))) + "#mail", 303)
 
 @app.post("/admin/heartbeat/settings")
 async def heartbeat_save(r: Request, _=Depends(csrf)):
@@ -783,7 +839,11 @@ def inbox_thread(r: Request, direction: str, mid: int):
     if item["listing_id"]: req = {"href": f"/listing/{item['listing_id']}", "label": "Open listing", "status": (C.execute("SELECT status FROM listings WHERE id=?", (item["listing_id"],)).fetchone() or {}).get("status")}
     elif item["reg_id"]:
         q_ = C.execute("SELECT * FROM reg_requests WHERE id=?", (item["reg_id"],)).fetchone(); req = {"href": "/coverage", "label": "Open broker request", "status": q_["status"] if q_ else None}
-    return T.TemplateResponse(r, "inbox_thread.html", {"m": item, "row": row, "body": row["body"] or "", "links": mailbox.links(row) if direction == "in" else [],
+    pshots = []
+    if item["listing_id"]:
+        pp = C.execute("SELECT * FROM people WHERE id=?", (item["person_id"],)).fetchone()
+        if pp and consented(pp): pshots = [x for x in shots.for_listing(C, item["listing_id"]) if x["ok"]]
+    return T.TemplateResponse(r, "inbox_thread.html", {"m": item, "row": row, "body": row["body"] or "", "pshots": pshots, "links": mailbox.links(row) if direction == "in" else [],
         "timeline": mailbox.thread(C, item), "req": req})
 
 @app.post("/inbox/{direction}/{mid}/handled")
@@ -816,7 +876,7 @@ def _wiz(r, step, status_code=200, **ctx):
         try: worker = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "cloudflare-email-worker.js")).read()
         except OSError: worker = ""
     ctx = {"steps": onboarding.STEPS, "step": step, "st": st, "cfg": config, "error": None, "msg": "", "v": {}, "tzs": TZ_COMMON, "states": config.US_STATES,
-           "items": onboarding.checklist(C, u) if (u and step == 7) else [], "data_key": key, "key_source": crypto.KEY_SOURCE, "base": base, "person": person, "worker": worker, "mail_domain": md, "dns": None,
+           "items": onboarding.checklist(C, u) if (u and step == 7) else [], "firstscan": scanjobs.progress(u["person_id"]) if (u and step == 7) else {}, "data_key": key, "key_source": crypto.KEY_SOURCE, "base": base, "person": person, "worker": worker, "mail_domain": md, "dns": None,
            "law": letters.law(config.get("HOME_STATE") or "CA")[0], **ctx}
     return T.TemplateResponse(r, "setup.html", ctx, status_code=status_code)
 
@@ -902,7 +962,7 @@ async def setup_step_save(r: Request, n: int, _=Depends(csrf)):
             if not (config.get("RESEND_API_KEY") and config.get("FROM_ADDRESS")): st = "add the API key and from-address first"
             else: st = mailer.send_test(to)
             event(C, "setup_test_email", st[:120])
-            return RedirectResponse(f"/setup/3?msg=" + quote(f"Test email to {to}: {st}." if st == "sent" else f"Test email not sent: {st}."), 303)
+            return RedirectResponse(f"/setup/3?msg=" + quote(f"Test email to {to}: {st}." if st.startswith("sent") else f"Test email not sent: {st}."), 303)
     elif n == 4: onboarding.update(C, inbound_ok=True)
     elif n == 5:
         prov = g("CAPTCHA_PROVIDER") or "off"; ch = g("UPDATE_CHANNEL") or "stable"

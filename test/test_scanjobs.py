@@ -3,7 +3,7 @@ import os, sys, tempfile, pathlib, re, time, asyncio, threading
 T = tempfile.mkdtemp(); ROOT = pathlib.Path(__file__).resolve().parents[1]
 os.environ.update(DB_PATH=f"{T}/app.db", SHOT_DIR=f"{T}/shots", AUTH_DIR=f"{T}/auth", PROFILES_DIR=str(ROOT / "test/profiles"), SITES_FILE=str(ROOT / "test/sites.test.yaml"),
                   SCHEDULER="false", DRY_RUN="true", ADMIN_USERNAME="alex", ADMIN_PASSWORD="admin correct horse battery", COOKIE_SECURE="false",
-                  FF_DATA_KEY="unit-test-key-0123456789-abcdefghijklmnop", SCAN_ON_EDIT="false", INBOUND_SECRET="s", PUBLIC_URL="http://testserver")
+                  FF_DATA_KEY="unit-test-key-0123456789-abcdefghijklmnop", SCAN_ON_EDIT="false", SCAN_ON_CREATE="false", INBOUND_SECRET="s", PUBLIC_URL="http://testserver")
 sys.path.insert(0, str(ROOT / "optout"))
 from fastapi.testclient import TestClient
 import main, scanner, scanjobs
@@ -18,6 +18,7 @@ def test_scan_dedupe_progress_log_and_health(monkeypatch):
             while not gate.is_set() and i == 2: await asyncio.sleep(0.02)
         return {}
     monkeypatch.setattr(scanner, "run_all", fake)
+    import db; k = db.conn(); k.execute("UPDATE people SET esign_at=? WHERE id='alex'", (db.now(),)); k.commit()
     c = TestClient(main.app, follow_redirects=False); c.post("/login", data={"username": "alex", "password": APW})
     t = re.search(r'name="csrf" value="([^"]+)"', c.get("/person/alex").text).group(1)
     for _ in range(4): assert c.post("/person/alex/scan", data={"csrf": t}).status_code == 303

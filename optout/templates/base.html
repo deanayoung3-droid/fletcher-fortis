@@ -13,7 +13,7 @@
    {% for href, t, i in ([('/', 'Overview', 'grid'), ('/needs-you', 'Needs you', 'hand'), ('/inbox', 'Inbox', 'mail'), ('/family', 'Family & accounts', 'users'), ('/sites', 'Site coverage', 'search'), ('/coverage', 'Broker coverage', 'shield'), ('/calls', 'Calls & mail', 'phone'), ('/admin/heartbeat', 'Heartbeat', 'activity')] if admin else [('/person/' ~ U.person_id, 'My listings', 'grid'), ('/person/' ~ U.person_id ~ '/profile', 'My profile', 'user'), ('/inbox', 'Inbox', 'mail'), ('/person/' ~ U.person_id ~ '/authorize', 'Authorization', 'file')]) %}<a href="{{href}}" class="sb-link {{'on' if request.url.path == href or (href == '/inbox' and request.url.path.startswith('/inbox/'))}}">{{icon(i)}}<span>{{t}}</span>{% if t=='Needs you' and alerts_n %}<span class="ml-auto count !bg-orange-500 !text-white">{{alerts_n}}</span>{% endif %}</a>{% endfor %}
    {% if admin %}<div class="sb-label mt-4 flex items-center">Family<a href="/add" class="ml-auto text-stone-400 hover:text-ink dark:hover:text-white" title="Add family member" aria-label="Add family member">{{icon('plus','w-3.5 h-3.5')}}</a></div>
    {% for m in fam %}{% set ms = pstats(m.id) %}{% set rv = ms.get('candidate',0) + ms.get('reappeared',0) %}
-   <a href="/person/{{m.id}}" class="sb-link {{'on' if request.url.path.startswith('/person/' ~ m.id) or (l is defined and l.person_id == m.id)}}">{{avatar(m,'w-6 h-6 text-[9.5px]')}}<span class="truncate">{{m.full_name}}</span>
+   <a href="/person/{{m.id}}" class="sb-link {{'on' if (request.url.path == '/person/' ~ m.id or request.url.path.startswith('/person/' ~ m.id ~ '/')) or (l is defined and l.person_id == m.id)}}">{{avatar(m,'w-6 h-6 text-[9.5px]')}}<span class="truncate">{{m.full_name}}</span>
     {% if ms.get('reappeared') %}<span class="ml-auto count !bg-rose-500 !text-white">{{rv}}</span>{% elif rv %}<span class="ml-auto count">{{rv}}</span>{% elif m.needs_auth and not has_auth(m) %}<span class="ml-auto text-amber-500" title="Signed authorization needed">{{icon('lock','w-3.5 h-3.5')}}</span>{% endif %}</a>{% endfor %}
    <a href="/add" class="sb-link text-stone-500 dark:text-neutral-500">{{icon('plus')}}<span>Add family member</span></a>{% endif %}
   </nav>
@@ -38,4 +38,13 @@
   <main class="flex-1 px-4 lg:pl-3 lg:pr-6 py-5 lg:py-6">{% if admin and KEY_SOURCE == 'generated' %}<div class="mb-4 rounded-2xl bg-amber-50 dark:bg-amber-400/10 ring-1 ring-amber-200/70 dark:ring-amber-400/20 px-4 py-3 text-[12.5px] text-amber-800 dark:text-amber-200 flex items-center gap-2">{{icon('key')}}<span><b class="font-semibold">Encryption key is stored next to the data.</b> Set <span class="font-mono">FF_DATA_KEY</span> in the stack environment so a copy of the volume alone can't be decrypted (see SECURITY.md).</span></div>{% endif %}{% block body %}{% endblock %}</main>
  </div>
 </div>
+<dialog id="lb" class="m-0 w-screen h-screen max-w-none max-h-none bg-black/90 text-white p-0 backdrop:bg-black/80" aria-label="Screenshot viewer">
+ <div class="h-full flex flex-col"><div class="flex items-center gap-3 px-4 py-3 text-[13px]"><div class="min-w-0 flex-1"><div class="font-medium truncate" data-lb-t></div><div class="text-white/60 text-[12px] truncate"><span data-lb-d></span> · <span class="font-mono" data-lb-u></span></div></div>
+  <span class="text-white/60 font-mono text-[12px]" data-lb-n></span>
+  <button type="button" class="btn !h-8 !bg-white/10 !text-white !ring-white/20" data-lb-zoom aria-label="Zoom">{{icon('search','w-3.5 h-3.5')}}<span>Zoom</span></button>
+  <a class="btn !h-8 !bg-white/10 !text-white !ring-white/20" data-lb-dl href="#" download>{{icon('download','w-3.5 h-3.5')}}<span>Download</span></a>
+  <button type="button" class="btn-icon !text-white" data-lb-close aria-label="Close">{{icon('x')}}</button></div>
+  <div class="relative flex-1 min-h-0 overflow-auto grid place-items-center" data-lb-wrap><img data-lb-img alt="" class="max-w-full max-h-full object-contain cursor-zoom-in select-none"></div>
+  <button type="button" class="absolute left-3 top-1/2 btn-icon !w-11 !h-11 !bg-white/10 !text-white" data-lb-prev aria-label="Previous">{{icon('back')}}</button>
+  <button type="button" class="absolute right-3 top-1/2 btn-icon !w-11 !h-11 !bg-white/10 !text-white" data-lb-next aria-label="Next">{{icon('chev')}}</button></div></dialog>
 <script src="/static/app.js"></script></body></html>

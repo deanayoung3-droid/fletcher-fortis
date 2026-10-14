@@ -10,9 +10,9 @@
    <div class="text-[13px] text-stone-500 dark:text-neutral-400 truncate">{{[p.city, p.state]|select|join(', ') or 'Location not set'}}{% if p.prior_cities %} · prev. {{p.prior_cities.replace(',', ', ')}}{% endif %} · {{prof.names|length}} name{{'s' if prof.names|length != 1}}, {{prof.phones|length}} phone{{'s' if prof.phones|length != 1}}{% if p.age_min %} · age {{p.age_min}}–{{p.age_max}}{% endif %}</div></div>
   <div class="ml-auto flex gap-2 w-full sm:w-auto justify-end">
    <a href="/person/{{p.id}}/profile" class="btn">{{icon('user')}}<span class="hidden md:inline">Edit profile</span></a>
-   <a href="/person/{{p.id}}/proof.zip" class="btn" aria-label="Proof pack">{{icon('download')}}<span class="hidden 2xl:inline">Proof pack</span></a>
+   {% if not locked %}<a href="/person/{{p.id}}/proof.zip" class="btn" aria-label="Proof pack">{{icon('download')}}<span class="hidden 2xl:inline">Proof pack</span></a>{% endif %}
    {% if me().role == 'admin' %}<form method="post" action="/person/{{p.id}}/toggle/enabled">{{csrf()}}<button class="btn" aria-label="{{'Pause monitoring' if p.enabled else 'Enable monitoring'}}">{{icon('pause' if p.enabled else 'play')}}<span class="hidden 2xl:inline">{{'Pause monitoring' if p.enabled else 'Enable monitoring'}}</span></button></form>{% endif %}
-{% set sj = scanjob or {} %}{% set running = sj.state in ('queued', 'running') %}   <form method="post" action="/person/{{p.id}}/scan" class="flex-1 sm:flex-none" data-scan-form>{{csrf()}}<button class="btn-p w-full disabled:opacity-60" data-scan-btn {{'disabled' if running}}>{{icon('scan')}}<span data-scan-label>{{('Scanning… ' ~ sj.done ~ ' of ' ~ sj.total ~ ' sites' if sj.total else 'Starting scan…') if running else 'Scan now'}}</span></button></form></div>
+{% set sj = scanjob or {} %}{% set running = sj.state in ('queued', 'running') %}{% if not locked %}   <form method="post" action="/person/{{p.id}}/scan" class="flex-1 sm:flex-none" data-scan-form>{{csrf()}}<button class="btn-p w-full disabled:opacity-60" data-scan-btn {{'disabled' if running}}>{{icon('scan')}}<span data-scan-label>{{(('First scan running… ' if (sj.why or '').startswith(('new person','onboarding')) else 'Scanning… ') ~ sj.done ~ ' of ' ~ sj.total ~ ' sites' if sj.total else 'Starting scan…') if running else 'Scan now'}}</span></button></form>{% endif %}</div>
  </div>
 
 {% if invite %}{% set iv = invite %}
@@ -24,14 +24,14 @@
    {% if iv.label != 'Accepted' %}<form method="post" action="/person/{{p.id}}/invite">{{csrf()}}<button class="btn">{{icon('swap')}}{{'Send invite' if iv.label == 'Not sent' else 'Resend invite'}}</button></form>{% endif %}
   </div>
   {% if iv.link %}<div class="mt-3 flex items-center gap-2"><input id="invlink" readonly value="{{iv.link}}" class="input font-mono !h-9 !text-[12px] flex-1 min-w-0"><button type="button" class="btn !h-9" data-copy="invlink">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
-   <p class="text-[11.5px] text-stone-500 mt-1.5">{{'Emailed to them. ' if iv.just == 'sent' else 'Not emailed: email is not set up yet. Send this link yourself. '}}Single use, expires in 7 days. Resending makes a new link.</p>{% endif %}
+   <p class="text-[11.5px] text-stone-500 mt-1.5">{{'Emailed to them. ' if iv.just == 'sent' else ('Not emailed: sending failed (see above). Send this link yourself. ' if iv.just == 'failed' else 'Not emailed: email is not set up yet. Send this link yourself. ')}}Single use, expires in 7 days. Resending makes a new link.</p>{% endif %}
   <p class="text-[11.5px] text-stone-400 mt-2">{{iv.note}} No removal is filed until they accept and sign.</p>
  </div></section>
 {% endif %}
-{% set sj = scanjob or {} %}
+{% if not locked %}{% set sj = scanjob or {} %}
  <div id="scan" data-scan-status="/person/{{p.id}}/scan/status" data-scan-state="{{sj.state or ''}}" class="{{'' if sj.state else 'hidden'}} mb-3 rounded-2xl ring-1 ring-stone-200/80 dark:ring-white/10 bg-white dark:bg-neutral-900 px-4 py-3 flex items-center gap-3" role="status" aria-live="polite">
   <span class="w-8 h-8 rounded-full bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-500">{{icon('scan','w-4 h-4')}}</span>
-  <div class="flex-1 min-w-0"><div class="text-[13.5px] font-medium" data-scan-title>{% if sj.state in ('queued','running') %}Scanning… {{sj.done}} of {{sj.total}} sites{% elif sj.state == 'done' %}Scan finished: {{sj.found}} listing{{'s' if sj.found != 1}} found{% if sj.errors %}, {{sj.errors}} site error{{'s' if sj.errors != 1}}{% endif %}{% elif sj.state == 'error' %}Scan failed ({{sj.error}}){% endif %}</div>
+  <div class="flex-1 min-w-0"><div class="text-[13.5px] font-medium" data-scan-title>{% if sj.state in ('queued','running') %}{{'First scan running' if (sj.why or '').startswith(('new person','onboarding')) else 'Scanning'}}… {{sj.done}} of {{sj.total}} sites{% elif sj.state == 'done' %}Scan finished: {{sj.found}} listing{{'s' if sj.found != 1}} found{% if sj.errors %}, {{sj.errors}} site error{{'s' if sj.errors != 1}}{% endif %}{% elif sj.state == 'error' %}Scan failed ({{sj.error}}){% endif %}</div>
    <div class="mt-1.5 h-1.5 rounded-full bg-stone-100 dark:bg-white/10 overflow-hidden"><div data-scan-bar class="h-full bg-accent-600 transition-all" style="width:{{ (100 * sj.done / sj.total)|round|int if sj.total else (100 if sj.state == 'done' else 3) }}%"></div></div></div>
   <a href="/person/{{p.id}}" class="btn !h-8 {{'' if sj.state in ('done','error') else 'hidden'}}" data-scan-refresh>Refresh</a>
  </div>
@@ -75,7 +75,8 @@
  {% for l in listings %}{% set site = SITE.get(l.site,{}) %}{% set fl = l.fields|j %}{% set nm = site.get('name',l.site) %}
   <article class="tile flex flex-col" data-q="{{nm}} {{l.url}}">
    <a href="/listing/{{l.id}}" class="block relative rounded-[14px] overflow-hidden bg-white dark:bg-neutral-950 ring-1 ring-stone-200/80 dark:ring-white/10 aspect-[16/10] group">
-    {% if l.screenshot %}<img src="/shot/{{l.id}}" alt="Screenshot of {{nm}} listing" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-300" loading="lazy">
+    {% set th = thumbs.get(l.id) %}{% if th %}<img src="/shots/{{th.id}}/{{'crop' if th.crop else 'full'}}" alt="Screenshot of {{nm}} listing" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-300" loading="lazy">
+    {% elif l.screenshot %}<img src="/shot/{{l.id}}" alt="Screenshot of {{nm}} listing" class="w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-300" loading="lazy">
     {% else %}<div class="w-full h-full grid place-items-center text-stone-400 bg-[repeating-linear-gradient(45deg,transparent_0_8px,rgba(148,163,184,.12)_8px_9px)]"><div class="text-center">{{icon('image','w-6 h-6 mx-auto')}}<div class="text-[12px] mt-1.5">{{'Site blocked the automated search' if l.status in ('manual_check','checked_clear') else 'No screenshot · added manually'}}</div></div></div>{% endif %}
     <span class="absolute top-2.5 left-2.5">{{status(l.status, True)}}</span>
     {% if fl.age %}<span class="absolute top-2.5 right-2.5 pill bg-white/90 text-stone-700 ring-black/5 backdrop-blur">Age {{fl.age}}</span>{% endif %}</a>
@@ -116,7 +117,7 @@
     <div class="col-span-2 sm:col-span-3 xl:col-span-5 flex justify-end"><a href="/person/{{p.id}}/profile" class="btn">{{icon('user')}}Edit profile</a></div></div></section>
   <section class="tile flex flex-col">{{ label('Proof pack', 'file', 'everything a broker may ask for') }}
    <div class="card-w flex-1">
-    {% set shots = listings|selectattr('screenshot')|list %}
+    {% set shots = thumbs.values()|list %}
     {% for i, t, sub in [('image', (shots|length)~' screenshots', 'Each match outlined, with URL and date'), ('mail', (outbox|length)~' removal requests', 'CCPA emails from the outbox' ~ (' (dry run)' if DRY else '')), ('file', 'Signed authorization', ('E-signed letter (PDF)' if p.esign_at else 'PDF on file') if has_auth(p) else ('Not signed yet' if p.needs_auth else 'Not needed for ' ~ p.first)), ('chart', 'Listings log', 'CSV of every listing and status')] %}
     <div class="flex items-center gap-3 px-4 py-3 border-b border-stone-100 dark:border-white/[.07]"><span class="w-9 h-9 rounded-[10px] bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-600 dark:text-neutral-300">{{icon(i)}}</span>
      <div class="min-w-0 flex-1"><div class="text-[13.5px] font-medium">{{t}}</div><div class="text-[12px] text-stone-500 dark:text-neutral-500">{{sub}}</div></div><span class="text-stone-400">{{icon('download')}}</span></div>{% endfor %}
@@ -138,15 +139,27 @@
    <div class="card-w flex-1">{% for o in outbox %}<div class="flex items-center gap-3 px-4 py-2.5 border-b last:border-0 border-stone-100 dark:border-white/[.07]"><span class="text-stone-400">{{icon('mail')}}</span><div class="min-w-0 flex-1"><div class="text-[13px] font-medium truncate">{{o.to_addr}}</div><div class="text-[11.5px] text-stone-500 font-mono">{{o.ts[5:16].replace('T',' ')}}</div></div>{{pill(o.state.replace('_',' '), 'amber' if o.state=='dry_run' else 'green' if o.state=='sent' else 'red')}}</div>
    {% else %}<div class="py-10 text-center"><span class="mx-auto w-10 h-10 rounded-xl bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-400">{{icon('mail')}}</span><div class="text-[13px] font-medium mt-3">No requests yet</div><div class="text-[12px] text-stone-500">Approved listings with email opt-outs show up here.</div></div>{% endfor %}</div></section>
  </div>
+{% else %}
+ <section class="tile mb-3" role="status"><div class="card-w p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center gap-4 ring-1 ring-amber-200/80 dark:ring-amber-400/20">
+  <span class="w-11 h-11 rounded-2xl bg-amber-50 dark:bg-amber-400/10 text-amber-600 grid place-items-center shrink-0">{{icon('lock','w-5 h-5')}}</span>
+  <div class="flex-1"><div class="text-[15px] font-semibold tracking-[-0.02em]">{{lock_msg}}</div>
+   <div class="text-[12.5px] text-stone-500 mt-1">Listings, scan results, removals, mail and charts unlock once {{'you sign' if me().person_id == p.id else 'they sign'}}.</div></div>
+  {% if me().person_id == p.id %}<a href="/person/{{p.id}}/authorize" class="btn-p">{{icon('file')}}Sign now</a>{% endif %}</div></section>
+ <section class="tile mb-3">{{ label('Profile basics', 'user') }}<div class="card-w p-4 grid sm:grid-cols-2 gap-3 text-[13px]">
+  <div><div class="text-[11.5px] text-stone-500">Name</div><div class="font-medium">{{p.full_name}}</div></div>
+  <div><div class="text-[11.5px] text-stone-500">City</div><div class="font-medium">{{[p.city, p.state]|select|join(', ') or '—'}}</div></div></div></section>
+ <div class="relative rounded-[20px] overflow-hidden" aria-hidden="true"><div class="grid md:grid-cols-3 gap-3 blur-[6px] opacity-60 select-none pointer-events-none">{% for i in range(6) %}<div class="h-[150px] rounded-[18px] bg-white dark:bg-neutral-900 ring-1 ring-black/5 p-4"><div class="h-3 w-24 rounded bg-stone-200 dark:bg-white/10"></div><div class="h-2 w-40 rounded bg-stone-100 dark:bg-white/[.06] mt-3"></div><div class="h-16 rounded-xl bg-stone-100 dark:bg-white/[.04] mt-4"></div></div>{% endfor %}</div>
+  <div class="absolute inset-0 grid place-items-center"><span class="pill bg-white/90 dark:bg-black/70 text-stone-700 dark:text-neutral-300 ring-black/5 backdrop-blur">{{icon('lock','w-3.5 h-3.5')}} Locked until signed</span></div></div>
+{% endif %}
 </div>
 
 <aside class="xl:w-[300px] shrink-0 xl:border-l border-stone-200/70 dark:border-white/10 xl:pl-6 xl:-my-7 xl:py-7">
  <div class="xl:sticky xl:top-24"><div class="text-[16px] font-semibold">Timeline</div><div class="text-[12px] text-stone-500 mb-4">Newest first</div>
- <ol class="relative ml-1.5 border-l border-stone-200 dark:border-white/10">{% for e in pevents(p.id) %}
+ <ol class="relative ml-1.5 border-l border-stone-200 dark:border-white/10">{% for e in (pevents(p.id) if not locked else []) %}
   <li class="pl-5 pb-5 relative"><span class="absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full ring-4 ring-shell dark:ring-black {{'bg-emerald-500' if 'removed' in e.kind or 'done' in e.kind or 'auth_up' in e.kind else 'bg-rose-500' if 'reappear' in e.kind else 'bg-stone-400' if 'not_me' in e.kind else 'bg-accent-500'}}"></span>
    <div class="text-[13px] font-medium">{{ {'scan_started':'Scan started','scan_result':'Site checked','scan_blocked':'Site blocked the scan','scan_error':'Site unreachable','manual_checked_clear':'Checked by hand: not listed','listing_found':'Scan found a listing','not_me':'Marked “Not me”','form_done_by_human':'Form completed by you','auth_uploaded':'Authorization uploaded','bulk_ccpa':'Bulk CCPA run'}.get(e.kind, e.kind.replace('_',' ')|capitalize) }}</div>
    <div class="text-[12px] text-stone-500 dark:text-neutral-500 truncate">{{(e.detail or '')[:44]}}</div><div class="text-[11px] text-stone-400 font-mono mt-0.5">{{e.ts[:16].replace('T',' ')}}</div></li>
- {% else %}<li class="pl-5 text-[12.5px] text-stone-500">No activity yet. Run a scan to start.</li>{% endfor %}</ol></div>
+ {% else %}<li class="pl-5 text-[12.5px] text-stone-500">{{'Hidden until signed.' if locked else 'No activity yet. Run a scan to start.'}}</li>{% endfor %}</ol></div>
 </aside>
 </div>
 {% if me().role == 'admin' and me().person_id != p.id %}

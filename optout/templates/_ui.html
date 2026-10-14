@@ -60,3 +60,5 @@
  <path d="M20 90 A70 70 0 0 1 160 90" fill="none" class="draw stroke-accent-500 dark:stroke-accent-400" stroke-width="18" stroke-linecap="round" stroke-dasharray="{{len * v / 100}} 999"/>
  {% set a = 3.14159 * (1 - v/100) %}<circle cx="{{90 + r * (a|cos)}}" cy="{{90 - r * (a|sin)}}" r="6" class="fill-white stroke-accent-600 dark:stroke-accent-300" stroke-width="2.5"/>
 </svg>{% endmacro %}
+
+{% macro shotimg(sh, group, label, cls='w-full h-full object-cover object-top', variant='crop') %}<button type="button" class="block w-full h-full" data-lb data-lb-group="{{group}}" data-lb-src="/shots/{{sh.id}}/full" data-lb-crop="/shots/{{sh.id}}/crop" data-lb-dl="/shots/{{sh.id}}/full?download=1" data-lb-title="{{label}}" data-lb-date="{{(sh.ts or '')[:16].replace('T',' ')}}" data-lb-url="{{sh.url or ''}}" aria-label="Open {{label}} screenshot"><img src="/shots/{{sh.id}}/{{variant}}" alt="{{label}} screenshot" class="{{cls}}" loading="lazy"></button>{% endmacro %}

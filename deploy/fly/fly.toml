@@ -44,4 +44,4 @@ swap_size_mb = 1024             # Chromium headroom on a 1 GB Machine
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "1gb"                # 2gb costs about $6/month more if scans run out of memory
+  memory = "2gb"                # 2gb costs about $6/month more if scans run out of memory

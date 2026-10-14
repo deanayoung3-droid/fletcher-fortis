@@ -54,4 +54,4 @@ def send_test(to):
     text = f"This is a test from {app}. If you can read it, sending works.\n\nDry run is still on: no removal requests go out until you switch it off in Heartbeat."
     body = f'<div style="font-family:-apple-system,Segoe UI,sans-serif;font-size:14px;line-height:1.55;color:#1c1917"><p>This is a test from <b>{html.escape(app)}</b>. If you can read it, sending works.</p><p style="color:#78716c">Dry run is still on: no removal requests go out until you switch it off in Heartbeat.</p></div>'
     st = remover._resend(f"{remover.FROM_NAME} <{remover.FROM_ADDRESS}>", to, remover.FROM_ADDRESS, subject, text, None, "setup-test-" + now(), body)
-    return "sent" if st.startswith("sent") else st
+    return ("sent (Resend id " + st.split(":", 1)[1] + ")") if st.startswith("sent") else st.removeprefix("error: ")

@@ -2,6 +2,19 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.2.3] - 2026-10-14
+### Fixed
+- **Email sending (Resend) failed with 403.** Requests had no User-Agent, so Resend's Cloudflare rejected them ("error code: 1010"). Requests now send a `FletcherFortis/<version>` User-Agent, and errors are shown in plain words (for example "Resend 403: domain is not verified").
+- Send errors now appear in Heartbeat (**Email sending**) and on the invite ("Not sent: <reason>", retried automatically). Heartbeat has **Send test email to me**, which shows Resend's exact response.
+- Screenshots rebuilt: 1280px WebP full page plus a crop of the matched record (small files), a **Before** capture at discovery and an **After** capture at confirmed removal shown side by side, thumbnails on listing cards and Inbox threads, a lightbox (zoom, next/previous, download, capture date and URL), and a **Retake** button when a capture fails.
+- Setup wizard no longer overflows at 390px; sidebar no longer highlights two people whose ids share a prefix.
+### Added
+- **Consent lock:** until a person signs, their page shows only profile basics, the invite status and a "Waiting for … to sign" banner. Scan, approve, remove, listing and screenshot routes return 403. The admin's own profile needs the admin's signature too.
+- **Onboarding "Your details" step** after signing (Accept, Sign, Your details, Done), pre-filled from what the admin entered. Required: name, current city and state, and a phone or email. Never asks for SSN, full birth date or ID numbers.
+- **First scan runs automatically** once onboarding is saved (never before consent). Setting `SCAN_ON_CREATE` (default on) in Heartbeat. The person page and setup show "First scan running".
+### Changed
+- Fly example uses 2 GB of memory.
+
 ## [1.2.2] - 2026-10-14
 ### Added
 - **Delete person** (admin, on the person page): type the name to confirm. Removes listings, broker requests, sent and received mail, authorization, login, sessions and screenshots, and cancels queued emails. The audit event holds counts only, no personal info.

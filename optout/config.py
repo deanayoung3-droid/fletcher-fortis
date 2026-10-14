@@ -27,6 +27,7 @@ FIELDS = {
     "CF_ACCOUNT_ID": ("Cloudflare account ID (optional)", "Cloudflare", "text", ""),
     "CF_TUNNEL_HOST": ("Cloudflare Tunnel hostname (optional)", "Cloudflare", "text", ""),
     "SCAN_ENABLED": ("Weekly scans", "Scanning", "bool", "true"),
+    "SCAN_ON_CREATE": ("Scan right away when a person is added or finishes onboarding", "Scanning", "bool", "true"),
     "SCAN_DAY": ("Scan day", "Scanning", "int", "6"),
     "SCAN_HOUR": ("Scan hour (0–23, local time)", "Scanning", "int", "3"),
     "SUMMARY_HOUR": ("Weekly email hour (Monday)", "Scanning", "int", "8"),

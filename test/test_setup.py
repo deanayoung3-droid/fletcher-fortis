@@ -3,7 +3,7 @@ import os, sys, tempfile, pathlib, re
 T = tempfile.mkdtemp(); ROOT = pathlib.Path(__file__).resolve().parents[1]
 for k in ("ADMIN_PASSWORD", "DASHBOARD_PASSWORD", "FF_DATA_KEY", "PUBLIC_URL", "TZ", "RESEND_API_KEY", "INBOUND_SECRET"): os.environ.pop(k, None)
 os.environ.update(DB_PATH=f"{T}/app.db", DATA_DIR=T, FF_DATA_KEY_FILE=f"{T}/no-such-file", SHOT_DIR=f"{T}/shots", AUTH_DIR=f"{T}/auth", PROFILES_DIR=f"{T}/no-profiles",
-                  SITES_FILE=str(ROOT / "test/sites.test.yaml"), SCHEDULER="false", DRY_RUN="true", COOKIE_SECURE="false", SCAN_ON_EDIT="false", UPDATE_CHECK="false")
+                  SITES_FILE=str(ROOT / "test/sites.test.yaml"), SCHEDULER="false", DRY_RUN="true", COOKIE_SECURE="false", SCAN_ON_EDIT="false", SCAN_ON_CREATE="false", UPDATE_CHECK="false")
 sys.path.insert(0, str(ROOT / "optout"))
 import pytest
 from fastapi.testclient import TestClient

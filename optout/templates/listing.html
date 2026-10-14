@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_ui.html" import icon, avatar, pill, status, logo, label with context %}{% set site = SITE.get(l.site,{}) %}{% set nm = site.get('name',l.site) %}{% set fl = l.fields|j %}
+{% extends "base.html" %}{% from "_ui.html" import icon, avatar, pill, status, logo, label, shotimg with context %}{% set site = SITE.get(l.site,{}) %}{% set nm = site.get('name',l.site) %}{% set fl = l.fields|j %}
 {% block title %}{{nm}} · {{p.full_name}}{% endblock %}{% block body %}
 <div class="flex items-center gap-2 text-[13px] text-stone-500 mb-4"><a href="/" class="hover:text-ink dark:hover:text-white">Overview</a>{{icon('chev','w-3.5 h-3.5')}}<a href="/person/{{p.id}}" class="hover:text-ink dark:hover:text-white">{{p.full_name}}</a>{{icon('chev','w-3.5 h-3.5')}}<span class="text-ink dark:text-white font-medium">{{nm}}</span></div>
 <div class="flex flex-wrap items-center gap-3.5 mb-5">
@@ -16,11 +16,31 @@
   <a class="btn-p" target="_blank" rel="noopener noreferrer" href="{{l.url}}">Open search {{icon('ext','w-3.5 h-3.5')}}</a>{% endif %}</div>
 </div>
 <div class="grid lg:grid-cols-3 gap-3">
- <section class="tile lg:col-span-2">{{ label('Search blocked' if l.status in ('manual_check','checked_clear') else 'Screenshot · match outlined', 'image', 'checked ' ~ (l.last_seen or '')[:10]) }}
+{% if l.status in ('manual_check','checked_clear') %} <section class="tile lg:col-span-2">{{ label('Search blocked' if l.status in ('manual_check','checked_clear') else 'Screenshot · match outlined', 'image', 'checked ' ~ (l.last_seen or '')[:10]) }}
   <div class="rounded-[14px] overflow-hidden ring-1 ring-stone-200/80 dark:ring-white/10 bg-white">{% if l.screenshot %}<a href="/shot/{{l.id}}" target="_blank"><img src="/shot/{{l.id}}" alt="Listing screenshot" class="w-full"></a>{% elif l.status in ('manual_check','checked_clear') %}<div class="aspect-[16/9] grid place-items-center text-center px-8"><div><span class="mx-auto w-12 h-12 rounded-2xl bg-violet-50 dark:bg-violet-400/10 text-violet-600 grid place-items-center">{{icon('lock','w-5 h-5')}}</span>
    <div class="text-[15px] font-semibold text-ink mt-4">{{nm}} blocks automated searches</div><div class="text-[13px] text-stone-500 mt-1 max-w-md">The scanner never solves CAPTCHAs. Open the prefilled search in your own browser. If {{p.first}} is listed, copy the listing URL into “Add a listing manually” on {{p.first}}’s page. Otherwise mark it “Not listed”.</div>
    <a class="btn-p mt-5" target="_blank" rel="noopener noreferrer" href="{{l.url}}">Open prefilled search {{icon('ext','w-3.5 h-3.5')}}</a></div></div>
   {% else %}<div class="aspect-[16/9] grid place-items-center text-stone-400">{{icon('image','w-6 h-6')}}</div>{% endif %}</div></section>
+{% else %}
+ <section id="proof" class="tile lg:col-span-2 scroll-mt-6">{{ label('Proof · before and after' if after else 'Screenshot', 'image', (allshots|length) ~ ' capture' ~ ('s' if allshots|length != 1 else '')) }}
+  <div class="grid {{'sm:grid-cols-2' if before and after else ''}} gap-2">
+   {% for tag, sh, empty in [('Before', before, 'No capture yet'), ('After', after, '')] if sh or tag == 'Before' %}
+   <figure class="rounded-[14px] overflow-hidden ring-1 ring-stone-200/80 dark:ring-white/10 bg-white dark:bg-neutral-950">
+    <figcaption class="flex items-center gap-2 px-3 py-2 text-[12px] border-b border-stone-100 dark:border-white/[.07]">{{pill(tag, 'gray' if tag == 'Before' else 'green')}}<span class="text-stone-500">{{ (sh.ts or '')[:16].replace('T',' ') if sh else '' }}</span>{% if sh %}<span class="ml-auto text-stone-400">{{'found' if tag == 'Before' else 'confirmed removed'}}</span>{% endif %}</figcaption>
+    <div class="{{'aspect-[16/10]' if before and after else 'max-h-[560px]'}} overflow-hidden">
+    {% if sh %}{{ shotimg(sh, 'proof-' ~ l.id, tag ~ ' · ' ~ nm, 'w-full h-full object-cover object-top', 'crop' if sh.crop else 'full') }}
+    {% else %}<div class="aspect-[16/9] grid place-items-center text-center px-6 bg-[repeating-linear-gradient(45deg,transparent_0_8px,rgba(148,163,184,.12)_8px_9px)]"><div>
+      <span class="mx-auto w-10 h-10 rounded-xl bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-400">{{icon('image','w-5 h-5')}}</span>
+      <div class="text-[14px] font-semibold mt-3">{{'Capture failed' if shotfail else empty}}</div>
+      <div class="text-[12.5px] text-stone-500 mt-1 max-w-sm">{% if retaking %}Taking a new screenshot… refresh in a minute.{% elif shotfail %}{{shotfail.error or 'The page did not load.'}}{% else %}Added manually, so there's no capture yet.{% endif %}</div>
+      {% if not retaking %}<form method="post" action="/listing/{{l.id}}/retake" class="mt-4">{{csrf()}}<button class="btn">{{icon('scan')}}Retake</button></form>{% endif %}</div></div>{% endif %}
+    </div></figure>
+   {% endfor %}
+  </div>
+  {% if allshots|length > (1 if not after else 2) %}<div class="flex gap-2 mt-2 overflow-x-auto">{% for sh in allshots %}<div class="w-[120px] h-[76px] shrink-0 rounded-lg overflow-hidden ring-1 ring-stone-200 dark:ring-white/10">{{ shotimg(sh, 'proof-' ~ l.id, sh.kind|capitalize ~ ' · ' ~ nm) }}</div>{% endfor %}</div>{% endif %}
+  {% if before and not retaking %}<form method="post" action="/listing/{{l.id}}/retake" class="mt-2 flex justify-end">{{csrf()}}<button class="btn !h-8 !text-[12px]">{{icon('scan','w-3.5 h-3.5')}}Retake</button></form>{% elif retaking and before %}<div class="mt-2 text-right text-[12px] text-stone-500">Taking a new screenshot…</div>{% endif %}
+ </section>
+{% endif %}
  <div class="flex flex-col gap-3">
   <section class="tile">{{ label('What to look for' if l.status in ('manual_check','checked_clear') else 'Why we think it’s ' ~ p.first, 'search') }}
    <div class="card-w divide-y divide-stone-100 dark:divide-white/[.07] text-[13px]">

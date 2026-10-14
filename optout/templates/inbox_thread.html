@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_ui.html" import icon, pill, label with context %}{% block title %}{{m.subject}}{% endblock %}{% block body %}
+{% extends "base.html" %}{% from "_ui.html" import icon, pill, label, shotimg with context %}{% block title %}{{m.subject}}{% endblock %}{% block body %}
 <a href="/inbox" class="inline-flex items-center gap-1.5 text-[13px] text-stone-500 hover:text-ink dark:hover:text-white mb-3 px-1">{{icon('back','w-3.5 h-3.5')}}Inbox</a>
 <div class="flex flex-wrap items-start gap-4 mb-5 px-1"><div class="min-w-0 flex-1"><div class="flex items-center gap-2 mb-2">{{pill(m.label, m.color)}}<span class="text-[12.5px] text-stone-500">{{'Sent' if m.dir=='out' else 'Received'}} · {{m.stage}}</span></div>
  <h1 class="text-[28px] leading-[1.1] font-medium tracking-[-0.035em] break-words">{{m.subject}}</h1></div>
@@ -16,6 +16,7 @@
  <pre class="px-4 py-4 whitespace-pre-wrap break-words font-sans text-[13.5px] leading-relaxed">{{body or '(empty message)'}}</pre>
  {% if links %}<div class="px-4 pb-4"><div class="text-[12px] text-stone-500 mb-1.5">Links in this message (shown, never opened from here)</div>{% for l in links[:10] %}<div class="font-mono text-[12px] break-all text-stone-600 dark:text-neutral-300">{{l}}</div>{% endfor %}</div>{% endif %}
 </section>
+{% if pshots %}<section class="tile mb-3">{{label('Screenshots','image', (pshots|length) ~ '')}}<div class="grid grid-cols-2 gap-2">{% for sh in pshots[-4:] %}<div class="aspect-[16/10] rounded-xl overflow-hidden ring-1 ring-stone-200 dark:ring-white/10 bg-white">{{ shotimg(sh, 'mail-' ~ m.key, sh.kind|capitalize ~ ' · ' ~ m.broker) }}</div>{% endfor %}</div></section>{% endif %}
 <section class="tile">{{label('Timeline','clock', req.status.replace('_',' ') if req and req.status else '')}}
  <ol class="px-4 pb-4 relative">{% for t in timeline %}
   <li class="relative pl-6 pb-4 last:pb-0"><span class="absolute left-[5px] top-2 bottom-0 w-px bg-stone-200 dark:bg-white/10 {{'hidden' if loop.last}}"></span><span class="absolute left-0 top-1.5 w-[11px] h-[11px] rounded-full ring-2 ring-white dark:ring-black {{'bg-ink dark:bg-white' if t.key==m.key else ('bg-blue-500' if t.dir=='in' else ('bg-stone-300 dark:bg-neutral-600' if t.dir=='event' else 'bg-stone-500'))}}"></span>
