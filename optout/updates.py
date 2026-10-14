@@ -29,15 +29,19 @@ def check(force=False):
     """{current, latest, newer, url, notes, checked, error}. Network at most once per 24 h unless forced."""
     d = _load(); cur = current()
     fresh = d.get("checked") and (datetime.datetime.now() - datetime.datetime.fromisoformat(d["checked"])).total_seconds() < 86400
-    if force or not fresh or d.get("repo") != repo():
+    if force or not fresh or d.get("repo") != repo() or d.get("channel") != config.get("UPDATE_CHANNEL", "stable"):
         try:
             if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo()): raise ValueError("bad repo name")
-            req = urllib.request.Request(f"https://api.github.com/repos/{repo()}/releases/latest", headers={"Accept": "application/vnd.github+json", "User-Agent": "fletcher-fortis/" + cur})
+            beta = config.get("UPDATE_CHANNEL", "stable") == "beta"
+            req = urllib.request.Request(f"https://api.github.com/repos/{repo()}/releases" + ("?per_page=10" if beta else "/latest"), headers={"Accept": "application/vnd.github+json", "User-Agent": "fletcher-fortis/" + cur})
             r = json.loads(urllib.request.urlopen(req, timeout=15).read(2_000_000))  # nosec B310: fixed https host
+            if beta:   # newest non-draft release, pre-releases included
+                r = next((x for x in r if not x.get("draft")), None)
+                if not r: raise urllib.error.HTTPError(req.full_url, 404, "none", None, None)
             d = {"latest": (r.get("tag_name") or "").lstrip("v"), "url": r.get("html_url"), "notes": (r.get("body") or "")[:20000], "published": r.get("published_at"), "error": ""}
         except urllib.error.HTTPError as e: d = {**d, "error": "no releases published yet" if e.code == 404 else f"GitHub API HTTP {e.code}"}
         except Exception as e: d = {**d, "error": type(e).__name__}
-        d.update(checked=datetime.datetime.now().isoformat(timespec="seconds"), repo=repo())
+        d.update(checked=datetime.datetime.now().isoformat(timespec="seconds"), repo=repo(), channel=config.get("UPDATE_CHANNEL", "stable"))
         try:
             os.makedirs(os.path.dirname(CACHE), exist_ok=True); tmp = CACHE + ".tmp"; json.dump(d, open(tmp, "w")); os.replace(tmp, CACHE)
         except OSError: pass

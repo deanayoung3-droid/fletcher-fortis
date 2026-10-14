@@ -6,13 +6,13 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates
+import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding
 from db import now, event
 from crypto import enc
 import logsafe; logsafe.install()
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 T = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
-C = db.init(); profiles.seed(C); auth.bootstrap_admin(); config.load()
+C = db.init(); profiles.seed(C); auth.bootstrap_admin(); config.load(); onboarding.init_token(C)
 CUR = contextvars.ContextVar("user", default=None)
 PID_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 STATUS = {"candidate": ("Needs review", "amber"), "not_me": ("Not me", "gray"), "approved": ("Approved · queued", "blue"), "submitted": ("Submitted", "blue"),
@@ -73,7 +73,6 @@ async def security(r: Request, call_next):
         path = r.url.path; public = any(path == p or (p.endswith("/") and path.startswith(p)) for p in PUBLIC)
         if not has_users() and not path.startswith(("/setup", "/static/", "/healthz", "/favicon.ico")):   # first run: setup wizard only
             return _headers(RedirectResponse("/setup", 303))
-        if path == "/setup" and has_users(): return _headers(RedirectResponse("/login", 303))
         if r.method == "POST" and not path.startswith(("/inbound/", "/twilio/")):
             o = r.headers.get("origin") or r.headers.get("referer")
             if o and urlsplit(o).netloc not in _allowed_hosts(r): resp = Response("Cross-site request blocked", 403); return _headers(resp)
@@ -313,7 +312,7 @@ def home(r: Request):
     people = C.execute("SELECT * FROM people ORDER BY COALESCE((SELECT 1 FROM users WHERE users.person_id=people.id AND users.role='admin'),0) DESC, rowid").fetchall()
     return T.TemplateResponse(r, "home.html", {"people": people, "stats": {p["id"]: stats(p["id"]) for p in people}, "all": stats(),
         "brokers": _brokers(), "events": C.execute("SELECT * FROM events WHERE kind NOT IN ('scan_finished','scan_result') ORDER BY ts DESC, id DESC LIMIT 12").fetchall(),
-        "alerts": C.execute("SELECT l.*, p.full_name FROM listings l JOIN people p ON p.id=l.person_id WHERE status='reappeared'").fetchall()})
+        "alerts": C.execute("SELECT l.*, p.full_name FROM listings l JOIN people p ON p.id=l.person_id WHERE status='reappeared'").fetchall(), "setup_card": onboarding.show_card(C, u)})
 
 @app.get("/person/{pid}", response_class=HTMLResponse)
 def person(r: Request, pid: str, f: str = "", saved: str = "", signed: str = "", welcome: str = ""):
@@ -710,33 +709,135 @@ def heartbeat_run(r: Request, _=Depends(csrf)):
     auth.require_admin(r); res = lifecycle.tick(); event(C, "lifecycle_run", json.dumps(res))
     return RedirectResponse("/admin/heartbeat?msg=" + quote("Automation pass done: " + ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in res.items())), 303)
 
-# ---------- first-run setup ----------
-@app.get("/setup", response_class=HTMLResponse)
-def setup_page(r: Request): return T.TemplateResponse(r, "setup.html", {"error": None, "v": {}})
+# ---------- first-run setup wizard ----------
+# Step 1 (admin account) is reachable only with the one-time setup token from the container log; steps 2-7 need the admin session.
+TZ_COMMON = ["America/Los_Angeles", "America/Denver", "America/Phoenix", "America/Chicago", "America/New_York", "America/Anchorage", "Pacific/Honolulu", "UTC"]
+def _wiz(r, step, status_code=200, **ctx):
+    st = onboarding.state(C) or {"step": 1, "skipped": []}; u = r.state.user
+    key = ""
+    if step == 7 and crypto.KEY_SOURCE == "generated" and crypto.KEY_PATH and u and u["role"] == "admin":
+        try: key = open(crypto.KEY_PATH).read().strip()
+        except OSError: key = ""
+    base = (config.get("PUBLIC_URL") or str(r.base_url)).rstrip("/")
+    person = C.execute("SELECT * FROM people WHERE id=?", (u["person_id"],)).fetchone() if u else None
+    worker = ""
+    if step == 4:
+        try: worker = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "cloudflare-email-worker.js")).read()
+        except OSError: worker = ""
+    ctx = {"steps": onboarding.STEPS, "step": step, "st": st, "cfg": config, "error": None, "msg": "", "v": {}, "tzs": TZ_COMMON, "states": config.US_STATES,
+           "items": onboarding.checklist(C, u) if (u and step == 7) else [], "data_key": key, "key_source": crypto.KEY_SOURCE, "base": base, "person": person, "worker": worker,
+           "law": letters.law(config.get("HOME_STATE") or "CA")[0], **ctx}
+    return T.TemplateResponse(r, "setup.html", ctx, status_code=status_code)
 
+def _locked(r): return T.TemplateResponse(r, "setup_locked.html", {}, status_code=403)
+
+@app.get("/setup", response_class=HTMLResponse)
+def setup_page(r: Request, token: str = ""):
+    if has_users():
+        u = r.state.user; st = onboarding.state(C)
+        if u and u["role"] == "admin": return RedirectResponse(f"/setup/{max(2, (st or {}).get('step', 2))}" if st and not st.get("done") else "/setup/7", 303)
+        return RedirectResponse("/login", 303)
+    if token:   # move the token from the URL into a short-lived, path-scoped cookie so it doesn't sit in history or Referer
+        if not onboarding.token_ok(token): return _locked(r)
+        resp = RedirectResponse("/setup", 303)
+        resp.set_cookie(onboarding.COOKIE, token, max_age=6 * 3600, httponly=True, secure=auth.SECURE, samesite="strict", path="/setup"); return resp
+    if not onboarding.token_ok(r.cookies.get(onboarding.COOKIE)): return _locked(r)
+    return _wiz(r, 1)
+
+USERNAME_RE = re.compile(r"[a-z0-9._-]{3,32}")
 @app.post("/setup")
-def setup_submit(r: Request, app_name: str = Form("Fletcher Fortis"), public_url: str = Form(""), username: str = Form(""), email: str = Form(""), full_name: str = Form(""),
-                 city: str = Form(""), state: str = Form(""), password: str = Form(""), password2: str = Form(""), resend: str = Form("")):
+def setup_admin(r: Request, name: str = Form(""), username: str = Form(""), email: str = Form(""), password: str = Form(""), password2: str = Form("")):
     if has_users(): raise HTTPException(404)
-    v = {"app_name": app_name, "public_url": public_url, "username": username, "email": email, "full_name": full_name, "city": city, "state": state}
-    username = username.strip().lower(); err = None
-    if not re.fullmatch(r"[a-z0-9._-]{3,32}", username): err = "Username: 3–32 lowercase letters, digits, dot, dash or underscore."
-    elif len(full_name.split()) < 2: err = "Enter your first and last name."
-    elif email and not profiles.EMAIL_OK.match(email.strip()): err = "That email isn't valid."
-    elif public_url and not re.match(r"^https?://[\w.-]+(:\d+)?/?$", public_url.strip()): err = "Public URL looks like https://privacy.example.com"
+    if not onboarding.token_ok(r.cookies.get(onboarding.COOKIE)): return _locked(r)
+    v = {"name": name, "username": username, "email": email}; username = username.strip().lower(); email = email.strip().lower(); name = " ".join(name.split())[:80]; err = None
+    if len(name) < 2: err = "Enter your name."
+    elif not USERNAME_RE.fullmatch(username): err = "Username: 3 to 32 lowercase letters, digits, dot, dash or underscore."
+    elif not profiles.EMAIL_OK.match(email): err = "Enter a valid email. Test emails and the weekly summary go there."
     elif password != password2: err = "The two passwords don't match."
     else: err = auth.pw_problem(password, username)
-    if err: return T.TemplateResponse(r, "setup.html", {"error": err, "v": v}, status_code=400)
-    parts = full_name.split(); pid = re.sub(r"[^a-z0-9]", "", parts[0].lower())[:24] or "me"
-    prof = {"names": [{"kind": "legal", "first": " ".join(parts[:-1]), "middle": "", "last": parts[-1]}], "addresses": [{"street": "", "city": city.strip(), "state": (state.strip().upper() or "CA")[:2], "current": True}] if city.strip() else [],
-            "phones": [], "emails": [email.strip().lower()] if email.strip() else [], "relatives": [], "birth_year": None, "age_min": None, "age_max": None}
-    if not C.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone(): profiles.new_person(C, pid, prof, False)
-    c = db.conn(); c.execute("INSERT INTO users(username,pw_hash,role,person_id,must_change,created,email,onboarded) VALUES(?,?,?,?,0,?,?,1)", (username, auth.hash_pw(password), "admin", pid, now(), enc(email.strip().lower()) if email else None)); c.commit()
-    _HAS_USERS[0] = True
-    dom = urlsplit(public_url.strip()).hostname if public_url.strip() else ""
-    config.save({"APP_NAME": app_name.strip()[:60] or "Fletcher Fortis", "PUBLIC_URL": public_url.strip().rstrip("/"), "MAIL_DOMAIN": ".".join(dom.split(".")[-2:]) if dom else "", "RESEND_API_KEY": resend.strip()})
-    event(C, "setup_completed", app_name[:60]); u = c.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
-    resp = RedirectResponse(f"/person/{pid}/profile?onboard=1", 303); auth.set_cookie(resp, auth.create_session(u["id"], auth.client_ip(r))); return resp
+    if err: return _wiz(r, 1, status_code=400, error=err, v=v)
+    pid = re.sub(r"[^a-z0-9_]", "_", username)[:32]
+    c = db.conn(); c.execute("INSERT INTO users(username,pw_hash,role,person_id,must_change,created,email,name,onboarded) VALUES(?,?,?,?,0,?,?,?,1)",
+                             (username, auth.hash_pw(password), "admin", pid, now(), enc(email), enc(name))); c.commit()
+    _HAS_USERS[0] = True; onboarding.burn_token(); onboarding.update(C, step=2, skipped=[], done=False, key_ack=False, dismissed=False)
+    event(C, "setup_admin_created", username); u = c.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    resp = RedirectResponse("/setup/2", 303); auth.set_cookie(resp, auth.create_session(u["id"], auth.client_ip(r))); resp.delete_cookie(onboarding.COOKIE, path="/setup"); return resp
+
+@app.get("/setup/{n}", response_class=HTMLResponse)
+def setup_step(r: Request, n: int, msg: str = ""):
+    auth.require_admin(r)
+    if not 1 <= n <= 7: raise HTTPException(404)
+    if n == 4 and not config.get("INBOUND_SECRET"): config.save({"INBOUND_SECRET": secrets.token_urlsafe(32)})
+    return _wiz(r, n, msg=msg[:300])
+
+def _next(n): return RedirectResponse(f"/setup/{min(n + 1, 7)}", 303)
+@app.post("/setup/{n}")
+async def setup_step_save(r: Request, n: int, _=Depends(csrf)):
+    auth.require_admin(r)
+    if not 1 <= n <= 7: raise HTTPException(404)
+    f = await r.form(); action = f.get("action", "next"); g = lambda k: str(f.get(k) or "").strip()[:500]; u = r.state.user
+    if action == "back": return RedirectResponse(f"/setup/{max(n - 1, 1)}", 303)
+    if action == "skip":
+        if not onboarding.STEPS[n - 1][2]: raise HTTPException(400, "That step can't be skipped.")
+        onboarding.mark(n, True, C); return _next(n)
+    err = None; v = {k: f.get(k) for k in f.keys() if k not in ("csrf", "RESEND_API_KEY", "CAPTCHA_API_KEY")}
+    if n == 1:
+        name = " ".join(g("name").split())[:80]; email = g("email").lower()
+        if len(name) < 2: err = "Enter your name."
+        elif not profiles.EMAIL_OK.match(email): err = "Enter a valid email."
+        else: C.execute("UPDATE users SET name=?, email=? WHERE id=?", (enc(name), enc(email), u["id"])); C.commit()
+    elif n == 2:
+        url = g("PUBLIC_URL").rstrip("/"); tz = g("TZ"); stt = g("HOME_STATE").upper()
+        if url and not re.match(r"^https?://[\w.-]+(:\d+)?$", url): err = "Public URL looks like https://privacy.example.com (no path)."
+        elif not onboarding.valid_tz(tz): err = "Pick a time zone from the list, e.g. America/Los_Angeles."
+        elif stt not in config.US_STATES: err = "Pick your state."
+        else:
+            dom = urlsplit(url).hostname if url else ""
+            vals = {"APP_NAME": g("APP_NAME")[:60] or "Fletcher Fortis", "PUBLIC_URL": url, "TZ": tz, "HOME_STATE": stt}
+            if dom and not config.get("MAIL_DOMAIN"): vals["MAIL_DOMAIN"] = ".".join(dom.split(".")[-2:])
+            config.save(vals)
+    elif n == 3:
+        frm = g("FROM_ADDRESS").lower(); key = g("RESEND_API_KEY")
+        if frm and not profiles.EMAIL_OK.match(frm): err = "The from-address isn't a valid email."
+        elif key and not re.fullmatch(r"re_[\w-]{8,}", key): err = "Resend API keys start with re_."
+        else:
+            vals = {"FROM_ADDRESS": frm, "FROM_NAME": g("FROM_NAME")[:80], "RESEND_API_KEY": key}
+            if frm and not config.get("MAIL_DOMAIN"): vals["MAIL_DOMAIN"] = frm.split("@", 1)[1]
+            config.save(vals)
+        if not err and action == "test":
+            to = u["email"]
+            if not (config.get("RESEND_API_KEY") and config.get("FROM_ADDRESS")): st = "add the API key and from-address first"
+            else: st = mailer.send_test(to)
+            event(C, "setup_test_email", st[:120])
+            return RedirectResponse(f"/setup/3?msg=" + quote(f"Test email to {to}: {st}." if st == "sent" else f"Test email not sent: {st}."), 303)
+    elif n == 4: onboarding.update(C, inbound_ok=True)
+    elif n == 5:
+        prov = g("CAPTCHA_PROVIDER") or "off"; ch = g("UPDATE_CHANNEL") or "stable"
+        if prov not in ("off", "2captcha", "capsolver"): err = "Pick a CAPTCHA provider."
+        elif ch not in ("stable", "beta"): err = "Pick an update channel."
+        elif prov != "off" and not (g("CAPTCHA_API_KEY") or config.get("CAPTCHA_API_KEY")): err = "Add the API key for the CAPTCHA solver, or set it to Off."
+        else: config.save({"CAPTCHA_PROVIDER": prov, "CAPTCHA_API_KEY": g("CAPTCHA_API_KEY"), "UPDATE_CHANNEL": ch, "AUTO_UPDATE": "true" if f.get("AUTO_UPDATE") == "true" else "false"})
+    elif n == 6:
+        pid = u["person_id"]
+        if not C.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone():
+            parts = " ".join(g("full_name").split()).split(); email = g("email").lower(); stt = (g("state") or config.get("HOME_STATE") or "CA").upper()
+            if len(parts) < 2: err = "Enter your first and last name as they'd appear on a listing."
+            elif email and not profiles.EMAIL_OK.match(email): err = "That email isn't valid."
+            elif stt not in config.US_STATES: err = "Pick a state."
+            else:
+                prof = {"names": [{"kind": "legal", "first": " ".join(parts[:-1]), "middle": "", "last": parts[-1]}],
+                        "addresses": [{"street": "", "city": g("city")[:40], "state": stt, "current": True}] if g("city") else [],
+                        "phones": [], "emails": [email] if email else [], "relatives": [], "birth_year": None, "age_min": None, "age_max": None}
+                profiles.new_person(C, pid, prof, False); C.execute("UPDATE people SET state=? WHERE id=?", (stt, pid)); C.commit(); event(C, "person_added", "setup wizard", pid)
+    elif n == 7:
+        onboarding.update(C, done=True, key_ack=bool(f.get("key_ack")) or (onboarding.state(C) or {}).get("key_ack", False)); event(C, "setup_completed", "")
+        return RedirectResponse("/", 303)
+    if err: return _wiz(r, n, status_code=400, error=err, v=v)
+    onboarding.mark(n, False, C); return _next(n)
+
+@app.post("/setup-card/dismiss")
+def setup_card_dismiss(r: Request, _=Depends(csrf)):
+    auth.require_admin(r); onboarding.update(C, dismissed=True); return RedirectResponse("/", 303)
 
 # ---------- onboarding invites ----------
 @app.post("/family/onboard")

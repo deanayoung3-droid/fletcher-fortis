@@ -20,10 +20,19 @@ To rebuild it yourself: `docker build -t localhost/fletcher-fortis:latest .` in 
 3. **Environment variables → Advanced mode**: paste `deploy/stack.env.example` and fill it in. Two values are required:
    - `FF_DATA_KEY`: the encryption key for all family data in the database. Generate it with `openssl rand -base64 32`.
      **Store a copy in your password manager.** If you lose it, the encrypted names, addresses, phones and emails in the database are unrecoverable. If it leaks, together with a copy of the volume, that data is readable.
-   - `ADMIN_PASSWORD`: optional. Leave both empty to use the first-run setup wizard instead.
-     It is used only to create the admin account the first time the app starts. After you change the password in the app, you can blank this variable.
+   - `ADMIN_PASSWORD`: optional. Leave it empty to use the first-run setup wizard instead (recommended).
+     If set, it is used only to create the admin account the first time the app starts, and the wizard is skipped. After you change the password in the app, you can blank this variable.
 4. Keep `DRY_RUN=true`. **Deploy the stack.** Check `curl http://127.0.0.1:8080/healthz` on the server; it should return `{"ok":true,"dry_run":true}`.
    Portainer will also show the container as *healthy* (built-in healthcheck, every 30 s).
+
+### First-run setup wizard
+1. Portainer → **Containers → fletcher-fortis app container → Logs** (or `docker logs <container> 2>&1 | grep "Setup URL"`). Look for:
+   ```
+   Setup URL: http://localhost:8080/setup?token=...
+   ```
+   Replace `localhost` with the server's address (or open it through your tunnel). The token is new on every restart and stops working once the admin exists. Without it, `/setup` only explains where to find it.
+2. The wizard has seven steps: **admin account → basics (name, public URL, time zone, state) → email sending (Resend, with a test button) → inbound replies (Cloudflare Email Worker) → optional keys (CAPTCHA, updates) → first person → done**. Steps 3 to 6 can be skipped and finished later; everything is editable in Heartbeat → Settings.
+3. If `FF_DATA_KEY` isn't set, the key generated on first boot is shown on the Done screen. Copy it to your password manager.
 
 ### Accounts (after first deploy)
 1. Open `https://DOMAIN/login` and sign in as `alex`. Admins land on **Family**.

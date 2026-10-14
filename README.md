@@ -6,7 +6,7 @@ Fletcher Fortis searches 430+ people-search and data-broker sites for each perso
 
 ![Overview: exposures found, removals in progress, removed and reappeared, with a weekly found-vs-removed chart](docs/screenshots/overview.png)
 
-<p align="center"><a href="#quickstart">Quickstart</a> · <a href="#how-it-works">How it works</a> · <a href="#security-model">Security</a> · <a href="#faq">FAQ</a> · <a href="https://fletcher-fortis.github.io/fletcher-fortis/">Website</a></p>
+<p align="center"><a href="#getting-started">Getting started</a> · <a href="#how-it-works">How it works</a> · <a href="#security-model">Security</a> · <a href="#faq">FAQ</a> · <a href="https://fletcher-fortis.github.io/fletcher-fortis/">Website</a></p>
 
 ## Why
 
@@ -60,25 +60,40 @@ Every listing moves through the same lifecycle. Each step runs on its own unless
 
 California residents also get one task for the state's [Delete Request and Opt-out Platform](https://privacy.ca.gov/drop/) (DROP). A single request there reaches every registered data broker in the state, but the person has to verify residency on the state's site.
 
-## Quickstart
+## Getting started
 
-You need Docker with Compose. Three commands:
+**What you need**
+- A machine with Docker and Compose: a home server, NAS, Raspberry Pi 4/5 (4 GB) or a $5 VPS. About 1 GB of RAM.
+- *Optional:* a domain, if you want to reach the app from outside your network and send requests from your own address.
+- *Optional:* a free [Resend](https://resend.com) account for sending, and Cloudflare Email Routing (free) for broker replies. You can add both later.
 
-```bash
-git clone https://github.com/deanayoung3-droid/fletcher-fortis.git && cd fletcher-fortis
-docker compose up -d
-open http://localhost:8080
-```
+**Steps**
+1. Start it:
+   ```bash
+   git clone https://github.com/deanayoung3-droid/fletcher-fortis.git && cd fletcher-fortis
+   docker compose up -d
+   ```
+2. Find the one-time setup link in the logs:
+   ```bash
+   docker compose logs app | grep "Setup URL"
+   #  Setup URL: http://localhost:8080/setup?token=...
+   ```
+   In Portainer: **Containers → app → Logs**. Use your server's address instead of `localhost` if you're on another machine. The link works only until the admin account exists, and a new one is printed on every restart. Without the token, `/setup` only shows where to find it, so nobody else on your network can claim the install.
+3. Follow the setup wizard. Every step can be revisited later, and everything is stored (encrypted) in the database and editable in **Heartbeat → Settings**:
+   1. **Admin account:** name, username, email and a password (12+ characters, with a strength meter).
+   2. **Basics:** app name, public URL, time zone, and your state of residence (it picks the privacy law cited in requests).
+   3. **Email sending** *(optional)*: Resend API key and from address, with a **Send test email** button. Dry run stays on.
+   4. **Inbound replies** *(optional)*: Cloudflare Email Worker steps, with the worker code, URL and a generated secret ready to copy.
+   5. **Optional keys:** CAPTCHA solver, update channel and automatic updates.
+   6. **First person** *(optional)*: add yourself so the first scan has something to look for.
+   7. **Done:** a checklist of what's configured and what's left. The dashboard keeps a *Setup checklist* card until it's complete.
+4. **Save the encryption key.** If you didn't set `FF_DATA_KEY`, the app generates one on first boot in `/data/secrets/ff_data_key` and shows it on the Done screen. Keep a copy in your password manager; without it the encrypted data can't be recovered. For stronger protection, set it yourself before step 1:
+   ```bash
+   echo "FF_DATA_KEY=$(openssl rand -base64 32)" > .env && docker compose up -d
+   ```
+5. Look around. Dry run is on, so you can run scans and read the generated requests without anything being sent. Switch it off in Heartbeat when you're ready (it asks you to type `LIVE`).
 
-The setup wizard creates the admin account and walks you through the first family member. Dry run is on, so you can look around, run scans and read the generated requests without anything being sent.
-
-Before you rely on it, set an encryption key you control. Otherwise the app generates one next to the data and shows a warning:
-
-```bash
-echo "FF_DATA_KEY=$(openssl rand -base64 32)" > .env && docker compose up -d
-```
-
-Keep a copy of that key in your password manager. Without it, the encrypted data can't be recovered.
+Already running an older version? Nothing changes: installs that have an admin (or set `ADMIN_USERNAME`/`ADMIN_PASSWORD`) skip the wizard. `ADMIN_PASSWORD` still works as a way to create the admin without the wizard.
 
 ## Running it on a home server
 
@@ -105,17 +120,19 @@ Commands for each: [docs/CLOUD.md](docs/CLOUD.md). Datacenter IPs are blocked by
 
 You don't edit any code or config files. Everything lives in the app:
 
-- **Setup wizard (first run):** admin account, app name, first family member.
+- **Setup wizard (first run):** admin account, basics, email, inbound replies, optional keys, first person. See [Getting started](#getting-started).
 - **Heartbeat → Settings:** every other option. Values are stored encrypted in the database, take effect without a restart, and override environment variables. Secrets are write-only.
 
 | Group | Settings |
 |---|---|
 | Branding | App name, accent color, logo |
+| Household | Time zone, state of residence |
 | Domain | Public URL, email domain |
 | Email | Resend API key, from address and name, inbound webhook secret, auto-click verification links, weekly summaries |
 | Scanning | Weekly scan day and hour, delay between requests, searches per site |
 | Removals | Auto-approve and its minimum score, re-file when a listing reappears, reminder and escalation days, blind requests to blocked sites (off) |
 | Automation | Retry blocked sites, auto re-check, CAPTCHA solver provider, API key and monthly budget (off) |
+| Updates | Update channel (stable or beta), automatic installs, Watchtower token |
 | Safety | Dry run. Turning it off requires typing `LIVE`. |
 
 Heartbeat also shows the health of everything that runs on its own: scheduler, scanner, send queue, delivery, inbound mail, DNS records, disk and recent errors.

@@ -14,6 +14,7 @@ services:
       DRY_RUN: ${DRY_RUN:-true}                       # nothing is sent until you switch it off in Heartbeat
       COOKIE_SECURE: ${COOKIE_SECURE:-true}           # fine on http://localhost; behind HTTPS in production
       WATCHTOWER_URL: ${WATCHTOWER_URL:-http://watchtower:8080}   # used only if the autoupdate profile is running
+      HOST_PORT: ${APP_PORT:-8080}   # only used to print the first-run setup URL in the log
       WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN:-}       # same token as the sidecar (or paste it in Heartbeat > Settings > Updates)
     user: "10001:10001"
     read_only: true

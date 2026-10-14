@@ -32,6 +32,8 @@ New project → Deploy from GitHub repo (Dockerfile is detected) → add a Volum
 
 ## After deploying
 
+Open the setup link from the logs (`docker compose logs app | grep "Setup URL"`; on Fly.io `fly logs`, on Railway the Deploy Logs tab) and follow the wizard. It covers everything below; this list is for doing it by hand later.
+
 - **Heartbeat → Settings:**
   - Set the Public URL.
   - Add your Resend key and from address. Verify the domain in Resend: Heartbeat → Check DNS shows SPF, DKIM and DMARC.

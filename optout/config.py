@@ -3,6 +3,7 @@ applied over the environment without a restart: DB value > environment variable 
 import os, threading
 from crypto import enc, dec
 _lock = threading.Lock()
+US_STATES = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split()
 def groups():
     out = {}
     for k, f in FIELDS.items(): out.setdefault(f[1], []).append((k, f))
@@ -12,6 +13,8 @@ FIELDS = {
     "APP_NAME": ("App name", "Branding", "text", "Fletcher Fortis"),
     "BRAND_COLOR": ("Accent color", "Branding", "color", "#5559e3"),
     "LOGO_DATA": ("Logo (PNG, JPEG or SVG, max 200 KB)", "Branding", "image", ""),
+    "TZ": ("Time zone (IANA name, e.g. America/Los_Angeles)", "Household", "text", ""),
+    "HOME_STATE": ("State of residence (picks the privacy law cited in requests)", "Household", "select:" + "|".join(f"{s}={s}" for s in US_STATES), "CA"),
     "PUBLIC_URL": ("Public URL of this dashboard", "Domain", "url", ""),
     "MAIL_DOMAIN": ("Email domain", "Domain", "text", ""),
     "FROM_ADDRESS": ("Send-from address", "Email", "email", ""),
@@ -45,6 +48,7 @@ FIELDS = {
     "CAPTCHA_MONTHLY_CAP_USD": ("CAPTCHA monthly budget (USD, hard stop)", "Automation", "int", "5"),
     "AUTO_UPDATE": ("Install new releases automatically (needs the Watchtower sidecar)", "Updates", "bool", "false"),
     "WATCHTOWER_TOKEN": ("Watchtower HTTP API token (same as in the stack)", "Updates", "secret", ""),
+    "UPDATE_CHANNEL": ("Update channel", "Updates", "select:stable=Stable releases|beta=Beta (includes pre-releases)", "stable"),
     "GITHUB_REPO": ("Release channel (GitHub owner/repo)", "Updates", "text", "deanayoung3-droid/fletcher-fortis"),
     "DRY_RUN": ("Dry run (nothing leaves the server)", "Safety", "bool", "true"),
 }
@@ -94,6 +98,9 @@ def apply():
         v = get(k, "")
         if v not in (None, ""): os.environ[k] = v
         else: os.environ.pop(k, None)
+    try:
+        import time; time.tzset()   # TZ from the app layer takes effect without a restart
+    except Exception: pass
     import remover, inbound, mailfilter
     dry = get("DRY_RUN", "true").lower() != "false"
     remover.DRY = inbound.DRY = mailfilter.DRY = dry

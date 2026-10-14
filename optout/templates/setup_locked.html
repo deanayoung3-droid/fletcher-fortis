@@ -1,0 +1,8 @@
+{% extends "_shell.html" %}{% block title %}Setup{% endblock %}{% block card %}
+<h1 class="text-[26px] font-medium tracking-[-0.04em] mt-6">Open the setup link from the logs</h1>
+<p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-1.5 leading-relaxed">This install doesn't have an admin yet. To make sure nobody else on your network claims it, setup needs the one-time link the app printed when it started.</p>
+<div class="mt-5 rounded-xl bg-stone-50 dark:bg-white/[.04] ring-1 ring-stone-200/70 dark:ring-white/10 p-4 text-[12.5px] leading-relaxed">
+ <div class="font-medium text-ink dark:text-white mb-1.5">Find it in the container log</div>
+ <code class="block font-mono text-[12px] text-stone-700 dark:text-neutral-300">docker compose logs app | grep "Setup URL"</code>
+ <p class="text-stone-500 mt-2">In Portainer: Containers → fletcher-fortis → Logs. The link looks like <span class="font-mono">http://…/setup?token=…</span> and changes on every restart.</p>
+</div>{% endblock %}

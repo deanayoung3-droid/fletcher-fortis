@@ -49,6 +49,7 @@ services:
       TWILIO_ENABLED: ${TWILIO_ENABLED:-false}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       WATCHTOWER_URL: ${WATCHTOWER_URL:-http://watchtower:8080}   # used only if the autoupdate profile is running
+      HOST_PORT: ${APP_PORT:-8080}   # only used to print the first-run setup URL in the log
       WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN:-}       # same token as the sidecar (or paste it in Heartbeat > Settings > Updates)
     volumes:
       - ff-data:/data              # encrypted SQLite, screenshots, signed authorization PDFs, broker DB

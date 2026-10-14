@@ -42,3 +42,14 @@ def onboarding(first, admin, link):
 <tr><td class="px" style="padding:18px 32px 28px;{F}font-size:12px;line-height:1.5;color:#8a857c">No Social Security number, date of birth or ID is ever asked for. If you weren't expecting this, ignore it and the link will expire.<br><br>Button not working? Paste this link: <span style="color:#57534e;word-break:break-all">{E(link)}</span></td></tr>
 </table></td></tr></table></body></html>"""
     return subject, text, h
+
+def send_test(to):
+    """Setup wizard 'Send test email': one plain message to the admin's own address, straight through Resend, so the key and
+    from-address can be checked before going live. It is the only send that ignores DRY_RUN, and it never reaches a broker."""
+    if not os.environ.get("RESEND_API_KEY"): return "add a Resend API key first"
+    app = config.get("APP_NAME") or "Fletcher Fortis"
+    subject = f"{app}: test email"
+    text = f"This is a test from {app}. If you can read it, sending works.\n\nDry run is still on: no removal requests go out until you switch it off in Heartbeat."
+    body = f'<div style="font-family:-apple-system,Segoe UI,sans-serif;font-size:14px;line-height:1.55;color:#1c1917"><p>This is a test from <b>{html.escape(app)}</b>. If you can read it, sending works.</p><p style="color:#78716c">Dry run is still on: no removal requests go out until you switch it off in Heartbeat.</p></div>'
+    st = remover._resend(f"{remover.FROM_NAME} <{remover.FROM_ADDRESS}>", to, remover.FROM_ADDRESS, subject, text, None, "setup-test-" + now(), body)
+    return "sent" if st.startswith("sent") else st

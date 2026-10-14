@@ -9,9 +9,10 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 PREFIX = "enc1:"
 KEY_SOURCE = "env"
+KEY_PATH = None
 
 def _load_key():
-    global KEY_SOURCE
+    global KEY_SOURCE, KEY_PATH
     k = os.environ.get("FF_DATA_KEY", "").strip()
     f = os.environ.get("FF_DATA_KEY_FILE", "/run/secrets/ff_data_key")
     if not k and os.path.exists(f): k = open(f).read().strip(); KEY_SOURCE = "secret_file"
@@ -20,7 +21,8 @@ def _load_key():
         if not os.path.exists(p):
             os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)
             fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600); os.write(fd, secrets.token_urlsafe(48).encode()); os.close(fd)
-        k = open(p).read().strip(); KEY_SOURCE = "generated"
+            print(f"Generated a new data encryption key at {p}. Back it up (or set FF_DATA_KEY): without it the data can't be decrypted.", flush=True)
+        k = open(p).read().strip(); KEY_SOURCE = "generated"; KEY_PATH = p
     if len(k) < 32: raise SystemExit("FF_DATA_KEY must be at least 32 characters")
     return HKDF(hashes.SHA256(), 64, b"fletcher-fortis-v1", b"pii-fields").derive(k.encode())
 _SIV = AESSIV(_load_key())

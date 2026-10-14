@@ -1,19 +1,141 @@
-{% extends "_shell.html" %}{% block title %}Set up {{APP}}{% endblock %}{% block card %}
-<h1 class="text-[26px] font-medium tracking-[-0.04em] mt-6">Welcome. Let's set things up.</h1>
-<p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-1">Two minutes. You'll be the admin; you can invite family members after. Everything here can be changed later in Heartbeat &gt; Settings.</p>
-{% if error %}<div role="alert" class="mt-5 rounded-xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-3.5 py-2.5 text-[13px] text-rose-700 dark:text-rose-300 flex gap-2 items-center">{{icon('alert')}}{{error}}</div>{% endif %}
-<form method="post" class="mt-6 flex flex-col gap-4" autocomplete="off">
- <div class="text-[11.5px] font-mono uppercase tracking-wider text-stone-400">1 · Your app</div>
- <div><label class="flabel" for="an">App name</label><input class="input" id="an" name="app_name" maxlength="60" value="{{v.app_name or 'Fletcher Fortis'}}"></div>
- <div><label class="flabel" for="pu">Public URL <span class="text-stone-400 font-normal">· optional</span></label><input class="input font-mono" id="pu" name="public_url" placeholder="https://privacy.example.com" value="{{v.public_url or ''}}"><p class="text-[11.5px] text-stone-500 mt-1">Used in links inside emails. Leave empty if you're just trying it locally.</p></div>
- <div class="text-[11.5px] font-mono uppercase tracking-wider text-stone-400 pt-2">2 · Admin account</div>
- <div class="grid grid-cols-2 gap-3"><div class="col-span-2"><label class="flabel" for="fn">Your full name</label><input class="input" id="fn" name="full_name" required maxlength="80" autocomplete="name" value="{{v.full_name or ''}}"></div>
-  <div><label class="flabel" for="ci">City</label><input class="input" id="ci" name="city" maxlength="40" value="{{v.city or ''}}"></div><div><label class="flabel" for="stt">State</label><input class="input uppercase" id="stt" name="state" maxlength="2" placeholder="CA" value="{{v.state or ''}}"></div></div>
- <div><label class="flabel" for="em">Email</label><input class="input" id="em" name="email" type="email" maxlength="200" autocomplete="email" value="{{v.email or ''}}"></div>
- <div><label class="flabel" for="un">Username</label><input class="input font-mono" id="un" name="username" required minlength="3" maxlength="32" pattern="[a-z0-9._\-]+" autocomplete="username" value="{{v.username or ''}}"></div>
- <div><label class="flabel" for="pw">Password</label><input class="input" id="pw" name="password" type="password" required minlength="12" maxlength="200" autocomplete="new-password"><p class="text-[11.5px] text-stone-500 mt-1">At least 12 characters.</p></div>
- <div><label class="flabel" for="pw2">Repeat password</label><input class="input" id="pw2" name="password2" type="password" required minlength="12" maxlength="200" autocomplete="new-password"></div>
- <div class="text-[11.5px] font-mono uppercase tracking-wider text-stone-400 pt-2">3 · Email sending <span class="normal-case">· optional</span></div>
- <div><label class="flabel" for="rk">Resend API key</label><input class="input font-mono" id="rk" name="resend" type="password" autocomplete="off" placeholder="re_…"><p class="text-[11.5px] text-stone-500 mt-1">Dry run stays on until you switch it off in Heartbeat, so nothing is sent yet.</p></div>
- <button class="btn-p w-full !h-11 mt-1">{{icon('check')}}Create admin and continue</button>
-</form>{% endblock %}
+{% from "_ui.html" import icon, brand with context %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Set up · {{APP}}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<script src="/static/theme.js"></script><link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/static/app.css"></head>
+<body class="min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased">
+{% set cur = steps[step-1] %}{% set skipped = st.get('skipped', []) %}{% set optional = cur[2] %}
+<div class="mx-auto w-full max-w-[1040px] px-4 sm:px-6 py-6 sm:py-10">
+ <header class="flex items-center gap-2.5 px-1 mb-6">{{brand('h-8')}}<span class="text-[17px] font-semibold tracking-[-0.035em]">{{APP}}</span>
+  <span class="ml-auto text-[12px] text-stone-500 flex items-center gap-1.5">{{icon('shield','w-3.5 h-3.5')}}Dry run is on · nothing is sent</span></header>
+ <div class="rounded-[28px] bg-shell dark:bg-black p-2 shadow-[0_30px_80px_-30px_rgba(41,37,36,.35)] ring-1 ring-black/[.04] dark:ring-white/10">
+ <div class="grid lg:grid-cols-[260px_1fr] gap-2">
+  <!-- progress -->
+  <nav aria-label="Setup progress" class="rounded-[22px] lg:bg-transparent px-4 py-4 lg:px-5 lg:py-6">
+   <div class="lg:hidden">
+    <div class="flex items-center justify-between text-[12.5px]"><span class="font-medium">Step {{step}} of {{steps|length}} · {{cur[1]}}</span><span class="text-stone-500 font-mono">{{((step-1)*100/(steps|length-1))|round|int}}%</span></div>
+    <div class="mt-2 h-1.5 rounded-full bg-stone-200 dark:bg-white/10 overflow-hidden"><div class="h-full rounded-full bg-accent-600 dark:bg-accent-500" style="width:{{((step-1)*100/(steps|length-1))|round|int}}%"></div></div>
+   </div>
+   <ol class="hidden lg:flex flex-col gap-1">
+   {% for n, lab, opt in steps %}{% set done = n < step or (n <= st.get('step',1) and n != step) %}
+    <li><a href="{{'/setup/' ~ n if (n > 1 or me()) and n <= [st.get('step',1), step]|max else '#'}}" {% if n == step %}aria-current="step"{% endif %} class="flex items-center gap-3 h-11 px-3 rounded-xl text-[13.5px] {{'bg-white dark:bg-[#111112] shadow-[0_1px_2px_rgba(28,25,23,.05)] font-medium text-ink dark:text-white' if n == step else 'text-stone-500 dark:text-neutral-400 hover:text-ink dark:hover:text-white'}}">
+     <span class="w-6 h-6 rounded-full grid place-items-center text-[11px] font-semibold font-mono {{'bg-ink text-white dark:bg-white dark:text-black' if n == step else ('bg-emerald-500 text-white' if done and n not in skipped else ('bg-stone-300/70 text-stone-600 dark:bg-white/10 dark:text-neutral-300' if n in skipped else 'ring-1 ring-stone-300 dark:ring-white/15'))}}">{% if done and n not in skipped and n != step %}{{icon('check','w-3.5 h-3.5')}}{% else %}{{n}}{% endif %}</span>
+     <span class="flex-1">{{lab}}</span>{% if n in skipped and n != step %}<span class="text-[11px] text-stone-400">skipped</span>{% elif opt %}<span class="text-[11px] text-stone-400">optional</span>{% endif %}</a></li>
+   {% endfor %}</ol>
+   <p class="hidden lg:block text-[12px] text-stone-500 leading-relaxed mt-6 px-3">Everything here is saved as you go and can be changed later in <span class="font-medium text-stone-700 dark:text-neutral-300">Heartbeat → Settings</span>.</p>
+  </nav>
+  <!-- step -->
+  <main class="rounded-[22px] bg-white dark:bg-[#111112] p-6 sm:p-9 min-h-[560px] flex flex-col">
+   <div class="text-[12px] font-mono uppercase tracking-wider text-stone-400">Step {{step}} of {{steps|length}}{{' · optional' if optional}}</div>
+   {% if error %}<div role="alert" class="mt-4 rounded-xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-3.5 py-2.5 text-[13px] text-rose-700 dark:text-rose-300 flex gap-2 items-center">{{icon('alert')}}{{error}}</div>{% endif %}
+   {% if msg %}<div role="status" class="mt-4 rounded-xl {{'bg-emerald-50 ring-emerald-200 text-emerald-800 dark:bg-emerald-500/10 dark:ring-emerald-500/20 dark:text-emerald-300' if ': sent' in msg else 'bg-amber-50 ring-amber-200/70 text-amber-800 dark:bg-amber-400/10 dark:ring-amber-400/20 dark:text-amber-200'}} ring-1 px-3.5 py-2.5 text-[13px] flex gap-2 items-center">{{icon('mail')}}{{msg}}</div>{% endif %}
+   <form method="post" action="{{'/setup' if step == 1 and not me() else '/setup/' ~ step}}" class="flex-1 flex flex-col mt-3" autocomplete="off">{{csrf()}}<button name="action" value="{{'finish' if step == 7 else 'next'}}" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden"></button>
+   <div class="flex-1 max-w-[560px]">
+{% if step == 1 %}{% set u = me() %}
+    <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">{{'Your admin account' if u else 'Welcome. Create the admin account.'}}</h1>
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">{{'Your account is set up. You can update your name and email here.' if u else "You'll manage the household from this account and can invite family members afterwards. It takes about five minutes."}}</p>
+    <div class="mt-7 grid sm:grid-cols-2 gap-4">
+     <div class="sm:col-span-2"><label class="flabel" for="nm">Your name</label><input class="input" id="nm" name="name" required maxlength="80" autocomplete="name" value="{{v.name or (u.name if u else '') or ''}}"></div>
+     <div><label class="flabel" for="un">Username</label>{% if u %}<input class="input font-mono" id="un" value="{{u.username}}" disabled>{% else %}<input class="input font-mono" id="un" name="username" required minlength="3" maxlength="32" pattern="[a-z0-9._\-]+" autocapitalize="none" spellcheck="false" autocomplete="username" value="{{v.username or ''}}"><p class="text-[11.5px] text-stone-500 mt-1">Lowercase letters, digits, dot, dash.</p>{% endif %}</div>
+     <div><label class="flabel" for="em">Email</label><input class="input" id="em" name="email" type="email" required maxlength="200" autocomplete="email" value="{{v.email or (u.email if u else '') or ''}}"><p class="text-[11.5px] text-stone-500 mt-1">For test emails and the weekly summary.</p></div>
+     {% if not u %}
+     <div class="sm:col-span-2"><label class="flabel" for="pw">Password</label><input class="input" id="pw" name="password" type="password" required minlength="12" maxlength="200" autocomplete="new-password" data-strength="pwm" data-strength-user="un">
+      <div id="pwm" class="mt-2" aria-live="polite"><div class="grid grid-cols-4 gap-1">{% for i in range(4) %}<i class="h-1.5 rounded-full bg-stone-200 dark:bg-white/10 transition-colors" data-bar></i>{% endfor %}</div>
+       <p class="text-[11.5px] text-stone-500 mt-1.5" data-label>At least 12 characters. A short sentence works well.</p></div></div>
+     <div class="sm:col-span-2"><label class="flabel" for="pw2">Repeat password</label><input class="input" id="pw2" name="password2" type="password" required minlength="12" maxlength="200" autocomplete="new-password"></div>
+     {% endif %}
+    </div>
+{% elif step == 2 %}
+    <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">The basics</h1>
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">What to call the app, where it lives, and where your household is.</p>
+    <div class="mt-7 grid sm:grid-cols-2 gap-4">
+     <div class="sm:col-span-2"><label class="flabel" for="an">App name</label><input class="input" id="an" name="APP_NAME" maxlength="60" value="{{v.APP_NAME or cfg.get('APP_NAME')}}"></div>
+     <div class="sm:col-span-2"><label class="flabel" for="pu">Public URL <span class="text-stone-400 font-normal">· optional</span></label><input class="input font-mono" id="pu" name="PUBLIC_URL" placeholder="https://privacy.example.com" value="{{v.PUBLIC_URL or cfg.get('PUBLIC_URL') or ''}}"><p class="text-[11.5px] text-stone-500 mt-1">Used in links inside emails and for inbound replies. Leave empty if you're only trying it locally.</p></div>
+     <div><label class="flabel" for="tz">Time zone</label><input class="input font-mono" id="tz" name="TZ" list="tzl" required value="{{v.TZ or cfg.get('TZ') or 'America/Los_Angeles'}}"><datalist id="tzl">{% for t in tzs %}<option value="{{t}}">{% endfor %}</datalist><p class="text-[11.5px] text-stone-500 mt-1">Scans and the weekly email run on this clock.</p></div>
+     <div><label class="flabel" for="hs">State of residence</label><select class="input" id="hs" name="HOME_STATE">{% for s in states %}<option {{'selected' if (v.HOME_STATE or cfg.get('HOME_STATE')) == s}}>{{s}}</option>{% endfor %}</select><p class="text-[11.5px] text-stone-500 mt-1">Picks the privacy law requests cite. Now: <span class="font-medium text-stone-700 dark:text-neutral-300">{{law}}</span>.</p></div>
+    </div>
+{% elif step == 3 %}
+    <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">Email sending</h1>
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">Removal requests go out from your own domain through <a class="underline underline-offset-2" href="https://resend.com" target="_blank" rel="noopener">Resend</a> (the free tier is enough for a family). Dry run stays on, so nothing is sent to brokers until you switch it off in Heartbeat.</p>
+    <div class="mt-7 grid sm:grid-cols-2 gap-4">
+     <div class="sm:col-span-2"><label class="flabel" for="rk">Resend API key</label><input class="input font-mono" id="rk" name="RESEND_API_KEY" type="password" autocomplete="new-password" placeholder="{{cfg.masked('RESEND_API_KEY') or 're_…'}}"><p class="text-[11.5px] text-stone-500 mt-1">Resend → API Keys → Create (sending access). Write-only: leave empty to keep the current key.</p></div>
+     <div><label class="flabel" for="fa">From address</label><input class="input font-mono" id="fa" name="FROM_ADDRESS" type="email" placeholder="privacy@yourdomain.com" value="{{v.FROM_ADDRESS or cfg.get('FROM_ADDRESS') or ''}}"></div>
+     <div><label class="flabel" for="fnm">From name <span class="text-stone-400 font-normal">· optional</span></label><input class="input" id="fnm" name="FROM_NAME" maxlength="80" placeholder="{{APP}} Privacy" value="{{v.FROM_NAME or cfg.get('FROM_NAME') or ''}}"></div>
+    </div>
+    <div class="mt-5 flex flex-wrap items-center gap-3 rounded-xl bg-stone-50 dark:bg-white/[.04] ring-1 ring-stone-200/70 dark:ring-white/10 p-4">
+     <div class="text-[12.5px] text-stone-600 dark:text-neutral-400 flex-1 min-w-[220px]">Sends one message to <span class="font-medium text-ink dark:text-white">{{me().email}}</span> to check the key and domain. This is the only email that goes out while dry run is on.</div>
+     <button class="btn" name="action" value="test">{{icon('mail')}}Send test email</button></div>
+    <p class="text-[12px] text-stone-500 mt-4">Add your domain in Resend first and create the SPF, DKIM and DMARC records it lists. Heartbeat → Check DNS verifies them.</p>
+{% elif step == 4 %}{% set hook = base ~ '/inbound/email' %}
+    <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">Inbound replies</h1>
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">Brokers reply and send verification links. A free Cloudflare Email Worker forwards those messages to the app, which files them on the right listing and opens verification links for you.</p>
+    <ol class="mt-7 flex flex-col gap-5 text-[13.5px]">
+     <li class="flex gap-3"><span class="w-6 h-6 shrink-0 rounded-full ring-1 ring-stone-300 dark:ring-white/15 grid place-items-center text-[11px] font-mono">1</span><div>In Cloudflare, open your domain → <b class="font-medium">Email → Email Routing</b> and turn it on. Cloudflare adds the MX records.</div></li>
+     <li class="flex gap-3"><span class="w-6 h-6 shrink-0 rounded-full ring-1 ring-stone-300 dark:ring-white/15 grid place-items-center text-[11px] font-mono">2</span><div class="flex-1 min-w-0">Create a Worker (<b class="font-medium">Workers → Create → Hello World</b>), replace its code with this, and deploy:
+      <div class="mt-2 relative"><textarea id="wcode" readonly rows="6" class="w-full rounded-[10px] bg-stone-50 dark:bg-neutral-900 ring-1 ring-stone-200 dark:ring-white/10 p-3 font-mono text-[11.5px] leading-relaxed resize-none outline-none">{{worker}}</textarea>
+       <button type="button" class="btn !h-8 !px-3 !text-[12px] absolute top-2 right-2" data-copy="wcode">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div></div></li>
+     <li class="flex gap-3"><span class="w-6 h-6 shrink-0 rounded-full ring-1 ring-stone-300 dark:ring-white/15 grid place-items-center text-[11px] font-mono">3</span><div class="flex-1 min-w-0">In the Worker's <b class="font-medium">Settings → Variables</b>, add these two:
+      <div class="mt-2 grid gap-2">
+       <div class="flex items-center gap-2"><span class="w-[120px] shrink-0 font-mono text-[12px] text-stone-500">APP_URL</span><input id="wurl" class="input font-mono !h-9 !text-[12.5px]" readonly value="{{hook}}"><button type="button" class="btn !h-9 !px-3 !text-[12px]" data-copy="wurl">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
+       <div class="flex items-center gap-2"><span class="w-[120px] shrink-0 font-mono text-[12px] text-stone-500">INBOUND_SECRET</span><input id="wsec" class="input font-mono !h-9 !text-[12.5px]" readonly value="{{cfg.get('INBOUND_SECRET')}}"><button type="button" class="btn !h-9 !px-3 !text-[12px]" data-copy="wsec">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
+      </div><p class="text-[11.5px] text-stone-500 mt-1.5">Mark INBOUND_SECRET as a <b class="font-medium">Secret</b>. It was generated for you and is also in Heartbeat → Settings → Email.{% if 'localhost' in hook or '127.0.0.1' in hook %} Set a public URL in step 2 first: Cloudflare has to reach this address.{% endif %}</p></div></li>
+     <li class="flex gap-3"><span class="w-6 h-6 shrink-0 rounded-full ring-1 ring-stone-300 dark:ring-white/15 grid place-items-center text-[11px] font-mono">4</span><div>Back in Email Routing → <b class="font-medium">Routing rules</b>, send your from-address{% if cfg.get('FROM_ADDRESS') %} (<span class="font-mono">{{cfg.get('FROM_ADDRESS')}}</span>){% endif %} or a catch-all to the Worker.</div></li>
+    </ol>
+{% elif step == 5 %}
+    <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">Optional keys and updates</h1>
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">None of this is needed to start. You can come back to it any time.</p>
+    <div class="mt-7 grid sm:grid-cols-2 gap-4">
+     <div class="sm:col-span-2 text-[12px] font-medium text-stone-400">CAPTCHA solver</div>
+     <div><label class="flabel" for="cp">Provider</label><select class="input" id="cp" name="CAPTCHA_PROVIDER">{% for k, l in [('off','Off'),('2captcha','2Captcha (about $3 per 1,000)'),('capsolver','CapSolver (about $1 per 1,000)')] %}<option value="{{k}}" {{'selected' if (v.CAPTCHA_PROVIDER or cfg.get('CAPTCHA_PROVIDER')) == k}}>{{l}}</option>{% endfor %}</select></div>
+     <div><label class="flabel" for="ck">API key</label><input class="input font-mono" id="ck" name="CAPTCHA_API_KEY" type="password" autocomplete="new-password" placeholder="{{cfg.masked('CAPTCHA_API_KEY') or 'not set'}}"></div>
+     <p class="sm:col-span-2 -mt-2 text-[11.5px] text-stone-500">Only used for opt-out forms behind a CAPTCHA, with a hard monthly budget (default $5) in Heartbeat.</p>
+     <div class="sm:col-span-2 text-[12px] font-medium text-stone-400 pt-3">Updates</div>
+     <div><label class="flabel" for="uc">Update channel</label><select class="input" id="uc" name="UPDATE_CHANNEL">{% for k, l in [('stable','Stable releases'),('beta','Beta (includes pre-releases)')] %}<option value="{{k}}" {{'selected' if (v.UPDATE_CHANNEL or cfg.get('UPDATE_CHANNEL')) == k}}>{{l}}</option>{% endfor %}</select></div>
+     <div class="flex items-end"><label class="flex items-center gap-2.5 h-10 text-[13.5px]"><input type="checkbox" name="AUTO_UPDATE" value="true" class="w-4 h-4 accent-[#5559e3]" {{'checked' if cfg.get('AUTO_UPDATE') == 'true'}}>Install new releases automatically</label></div>
+     <p class="sm:col-span-2 -mt-2 text-[11.5px] text-stone-500">Automatic installs need the optional Watchtower sidecar (see docs/SELF-HOSTING.md). Without it, Heartbeat tells you when an update is out.</p>
+    </div>
+{% elif step == 6 %}
+    <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">Add the first person</h1>
+    {% if person %}
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">You're in: <span class="font-medium text-ink dark:text-white">{{person.full_name}}</span>. Add details like past cities, phones and relatives on your profile to improve matching.</p>
+    <a href="/person/{{person.id}}/profile" class="btn mt-5">{{icon('user')}}Open my profile</a>
+    {% else %}
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">Start with yourself. The first scan uses this to look for listings. You can add more detail and other family members afterwards.</p>
+    <div class="mt-7 grid sm:grid-cols-2 gap-4">
+     <div class="sm:col-span-2"><label class="flabel" for="pf">Full legal name</label><input class="input" id="pf" name="full_name" maxlength="80" autocomplete="name" value="{{v.full_name or me().name or ''}}"><p class="text-[11.5px] text-stone-500 mt-1">As it would appear on a people-search listing.</p></div>
+     <div><label class="flabel" for="pc">City</label><input class="input" id="pc" name="city" maxlength="40" autocomplete="address-level2" value="{{v.city or ''}}"></div>
+     <div><label class="flabel" for="ps">State</label><select class="input" id="ps" name="state">{% for s in states %}<option {{'selected' if (v.state or cfg.get('HOME_STATE')) == s}}>{{s}}</option>{% endfor %}</select></div>
+     <div class="sm:col-span-2"><label class="flabel" for="pe">Email <span class="text-stone-400 font-normal">· optional</span></label><input class="input" id="pe" name="email" type="email" maxlength="200" value="{{v.email or me().email or ''}}"></div>
+    </div>
+    <p class="text-[12px] text-stone-500 mt-4 flex items-center gap-1.5">{{icon('lock','w-3.5 h-3.5')}}Stored encrypted. No Social Security number, date of birth or ID is ever asked for.</p>
+    {% endif %}
+{% elif step == 7 %}
+    <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">You're set up</h1>
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">Here's what's configured and what's left. The dashboard keeps this checklist until it's done.</p>
+    {% if data_key %}
+    <div id="key" class="mt-6 rounded-2xl bg-amber-50 dark:bg-amber-400/10 ring-1 ring-amber-200/70 dark:ring-amber-400/20 p-4">
+     <div class="flex items-center gap-2 text-[13.5px] font-medium text-amber-900 dark:text-amber-200">{{icon('key')}}Save your encryption key</div>
+     <p class="text-[12.5px] text-amber-800/90 dark:text-amber-200/80 mt-1 leading-relaxed">It was generated on first boot and stored in <span class="font-mono">/data/secrets</span>. Put a copy in your password manager: without it, a backup of the data can't be decrypted. For stronger protection, set it as <span class="font-mono">FF_DATA_KEY</span> in your stack and delete the file.</p>
+     <div class="mt-3 flex gap-2"><input id="dkey" class="input font-mono !h-9 !text-[12px]" readonly value="{{data_key}}"><button type="button" class="btn !h-9 !px-3 !text-[12px]" data-copy="dkey">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
+     <label class="mt-3 flex items-center gap-2 text-[12.5px] text-amber-900 dark:text-amber-200"><input type="checkbox" name="key_ack" value="1" class="w-4 h-4" {{'checked' if st.get('key_ack')}}>I've saved this key somewhere safe</label>
+    </div>{% endif %}
+    <ul class="mt-6 divide-y divide-stone-100 dark:divide-white/[.06]">
+    {% for k, lab, done, opt, hint, href in items %}
+     <li class="flex items-center gap-3 py-3"><span class="w-6 h-6 shrink-0 rounded-full grid place-items-center {{'bg-emerald-500 text-white' if done else 'ring-1 ring-stone-300 dark:ring-white/15 text-stone-400'}}">{% if done %}{{icon('check','w-3.5 h-3.5')}}{% endif %}</span>
+      <div class="flex-1 min-w-0"><div class="text-[13.5px] {{'font-medium' if not done}}">{{lab}}{% if opt and not done %} <span class="text-stone-400 font-normal">· optional</span>{% endif %}</div>{% if not done %}<div class="text-[12px] text-stone-500">{{hint}}</div>{% endif %}</div>
+      {% if not done %}<a href="{{href}}" class="text-[12.5px] font-medium text-accent-600 dark:text-accent-400 whitespace-nowrap">{{'Set up' if k != 'live' else 'Heartbeat'}} →</a>{% endif %}</li>
+    {% endfor %}</ul>
+{% endif %}
+   </div>
+   <!-- nav -->
+   <div class="mt-8 pt-5 border-t border-stone-100 dark:border-white/[.06] flex items-center gap-2">
+    {% if step > 1 and me() %}<button class="btn" name="action" value="back" formnovalidate>{{icon('back')}}Back</button>{% endif %}
+    <div class="ml-auto flex items-center gap-2">
+     {% if optional %}<button class="btn !bg-transparent !ring-0 !shadow-none text-stone-500 hover:text-ink" name="action" value="skip" formnovalidate>Skip for now</button>{% endif %}
+     {% if step == 7 %}<a href="/admin/heartbeat" class="btn">{{icon('activity')}}Open Heartbeat</a><button class="btn-p" name="action" value="finish">Go to dashboard{{icon('chev','w-3.5 h-3.5')}}</button>
+     {% elif step == 1 and not me() %}<button class="btn-p !h-10 !px-5" name="action" value="next">Create account{{icon('chev','w-3.5 h-3.5')}}</button>
+     {% else %}<button class="btn-p !h-10 !px-5" name="action" value="next">{{'Done, continue' if step == 4 else ('Add and continue' if step == 6 and not person else 'Continue')}}{{icon('chev','w-3.5 h-3.5')}}</button>{% endif %}
+    </div></div>
+   </form>
+  </main>
+ </div></div>
+ <div class="flex items-center justify-center gap-2 py-4 text-[12px] text-stone-500"><button type="button" data-action="theme" class="hover:text-ink dark:hover:text-white">Theme</button></div>
+</div>
+<script src="/static/app.js"></script></body></html>

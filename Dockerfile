@@ -18,6 +18,7 @@ COPY eraser/data/brokers.yaml /app/brokers.yaml
 COPY config/skip_ids.txt /app/skip_ids.txt
 COPY VERSION /app/VERSION
 COPY brokers/ /app/brokers/
+COPY deploy/cloudflare-email-worker.js /app/deploy/cloudflare-email-worker.js
 COPY optout/ /app/optout/
 # non-root user; /data and /config are the only writable paths (root filesystem can be mounted read-only)
 RUN groupadd -g 10001 ff && useradd -u 10001 -g ff -M -d /tmp -s /usr/sbin/nologin ff \

@@ -61,3 +61,12 @@ document.querySelectorAll('input[type=tel],input[name=phone]').forEach(t=>{if(t.
  document.addEventListener('focusin',e=>{const g=e.target.closest&&e.target.closest('.chart [data-tip]');if(g)show(g,e)});
  document.addEventListener('focusout',e=>{const g=e.target.closest&&e.target.closest('.chart [data-tip]');if(g)hide(g)});})();
 document.addEventListener('change',e=>{const f=e.target.closest('[data-submit-on-change]');if(f&&f.files.length)f.form.submit()});
+/* Setup wizard: password strength meter (guidance only; the server enforces the rules). */
+(()=>{const pw=document.querySelector('[data-strength]');if(!pw)return;const box=document.getElementById(pw.dataset.strength),bars=box.querySelectorAll('[data-bar]'),lab=box.querySelector('[data-label]'),un=document.getElementById(pw.dataset.strengthUser);
+ const C=['#e11d48','#f59e0b','#84cc16','#10b981','#10b981'],L=['','Fair','Good','Strong','Very strong'];
+ function upd(){const v=pw.value,u=(un&&un.value||'').toLowerCase();let s=0,why='';
+  if(v.length<12)why=v?`Too short: ${v.length} of 12 characters`:'';else if(u.length>2&&v.toLowerCase().includes(u))why="Don't include your username";else if(new Set(v).size<5)why='Too repetitive';
+  else{s=1;const cls=[/[a-z]/,/[A-Z]/,/\d/,/[^A-Za-z0-9]/].filter(r=>r.test(v)).length;if(v.length>=16)s++;if(cls>=3||v.trim().split(/\s+/).length>=4)s++;if(v.length>=20&&new Set(v).size>=12)s++}
+  bars.forEach((b,i)=>{b.style.backgroundColor=v&&i<Math.max(s,1)?C[s]:''});
+  lab.textContent=!v?'At least 12 characters. A short sentence works well.':(s?L[s]+(s<3?'. Longer is stronger.':''):why);lab.style.color=v?C[s]:''}
+ pw.addEventListener('input',upd);un&&un.addEventListener('input',upd);upd()})();

@@ -223,3 +223,10 @@ def test_browser_origin_and_referrer_policy():
     assert client().post("/login", data={"username": "alex", "password": APW}, headers={"Origin": "https://evil.example"}).status_code == 403
     # no-referrer makes Chrome send "Origin: null", which the check rejects, so the policy must stay same-origin
     assert c.get("/login").headers["referrer-policy"] == "same-origin"
+
+def test_existing_install_unaffected_by_setup_wizard(admin):
+    """ADMIN_PASSWORD installs: no setup token, no forced wizard, no checklist card; /setup stays closed."""
+    import onboarding
+    assert onboarding._TOKEN[0] is None and onboarding.state() is None
+    assert "Setup checklist" not in admin.get("/").text and admin.get("/").status_code == 200
+    assert client().get("/setup?token=anything").headers["location"] == "/login"
