@@ -53,6 +53,14 @@ def dns_checks():
     add("dmarc", f"DMARC (_dmarc.{d})", dmarc_ok(dm), "; ".join(dm)[:120] or "missing", "Add TXT _dmarc: v=DMARC1; p=none; (rua=mailto:dmarc@" + d + " is optional)")
     return out
 
+def setup_dns():
+    """Setup wizard rows keyed like dns_checks, plus rsend (newer Resend setup; OK when send uses the legacy MX style instead)."""
+    d = {x["key"]: x for x in dns_checks()}; dom = domain()
+    rr = doh_records(f"rsend.{dom}", "CNAME") or []; cn = cname_of(rr)
+    legacy = d.get("mx_send", {}).get("ok") and "amazonses" in d.get("mx_send", {}).get("detail", "")
+    d["rsend"] = {"key": "rsend", "ok": bool(cn and _resend_host(cn)) or bool(legacy), "detail": cn or ("not needed (MX setup)" if legacy else "missing")}
+    return d
+
 def checklist(c):
     """Static readiness (no network)."""
     import config; env = lambda k, d=None: config.get(k, d) or (d if d is not None else None); items = []

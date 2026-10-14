@@ -5,25 +5,27 @@ import remover, config
 from db import conn, now
 from crypto import enc
 
-def send(to, subject, text, html_body, kind="mail", person_id=None):
+def send(to, subject, text, html_body, kind="mail", person_id=None, family=False):
+    """family=True: mail to a family member (invites). Dry run only blocks broker mail, so these go out once a provider works."""
     c = conn()
     cur = c.execute("INSERT INTO outbox(ts,person_id,to_addr,subject,body,state,channel,html) VALUES(?,?,?,?,?,?,?,?)", (now(), person_id, to, enc(subject), enc(text), "queued", kind, enc(html_body)))
     ref = str(cur.lastrowid)
-    if remover.DRY: state = "dry run: recorded in the outbox, not sent"
+    dry = remover.DRY and not family
+    if dry: state = "dry run: recorded in the outbox, not sent"
     elif not remover.provider_ready(): state = "not sent: email isn't set up yet (copy the link instead)"
     else: state = remover._resend(f"{remover.FROM_NAME} <{remover.FROM_ADDRESS}>", to, remover.FROM_ADDRESS, subject, text, None, ref, html_body)
-    c.execute("UPDATE outbox SET state=? WHERE id=?", ("sent" if state.startswith("sent") else ("dry_run" if remover.DRY else state), ref)); c.commit()
+    c.execute("UPDATE outbox SET state=? WHERE id=?", ("sent" if state.startswith("sent") else ("dry_run" if dry else state), ref)); c.commit()
     return "sent" if state.startswith("sent") else state
 
 def onboarding(first, admin, link):
-    """Welcome email with a one-time button link (expires in 72 h). Returns (subject, text, html)."""
+    """Welcome email with a one-time button link (expires in 7 days). Returns (subject, text, html)."""
     app = config.get("APP_NAME") or "Fletcher Fortis"; color = config.get("BRAND_COLOR") or "#5559e3"; E = html.escape
     base = (config.get("PUBLIC_URL") or "").rstrip("/")
     subject = f"{first}, your {app} account is ready"
     steps = [("Set a password", "Takes ten seconds."), ("Check your details", "Names, cities, phones. Relatives are already filled in."),
              ("Sign the authorization", "Draw your signature so we can file removals for you."), ("That's it", "We scan 470+ people-search sites and remove you automatically.")]
     text = "\n".join([f"Hi {first},", "", f"@{admin} set up {app} for you. It finds your personal information on people-search and data-broker sites and gets it removed, automatically.",
-        "", "Get started (one-time link, expires in 72 hours):", link, "", *[f"{i}. {a}: {b}" for i, (a, b) in enumerate(steps, 1)],
+        "", "Get started (one-time link, expires in 7 daysours):", link, "", *[f"{i}. {a}: {b}" for i, (a, b) in enumerate(steps, 1)],
         "", "No Social Security number, date of birth or ID is ever asked for.", "If you weren't expecting this, ignore it and the link will expire.", "", f"{app}"])
     F = "font-family:Geist,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"
     logo = f'<img src="{E(base)}/static/email-logo.png" width="28" height="35" alt="" style="display:block;border:0">' if base else ""
@@ -37,7 +39,7 @@ def onboarding(first, admin, link):
 <tr><td class="px" style="padding:26px 32px 0"><div style="{F}font-size:30px;line-height:1.12;font-weight:500;letter-spacing:-.04em;color:#0a0a0a">Hi {E(first)}, let's get you off<br>people-search sites.</div>
 <div style="{F}font-size:14.5px;line-height:1.55;color:#57534e;margin-top:12px">@{E(admin)} set up {E(app)} for you. It finds your personal information on data-broker sites and gets it removed, automatically, then keeps watching.</div></td></tr>
 <tr><td class="px" style="padding:24px 32px 0"><a href="{E(link)}" style="display:inline-block;background:{E(color)};color:#ffffff;text-decoration:none;{F}font-size:15px;font-weight:600;padding:14px 24px;border-radius:999px">Get started &rarr;</a>
-<div style="{F}font-size:12px;color:#8a857c;margin-top:10px">One-time link · expires in 72 hours</div></td></tr>
+<div style="{F}font-size:12px;color:#8a857c;margin-top:10px">One-time link · expires in 7 daysours</div></td></tr>
 <tr><td class="px" style="padding:22px 32px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:1px solid #f1efe9">{rows}</table></td></tr>
 <tr><td class="px" style="padding:18px 32px 28px;{F}font-size:12px;line-height:1.5;color:#8a857c">No Social Security number, date of birth or ID is ever asked for. If you weren't expecting this, ignore it and the link will expire.<br><br>Button not working? Paste this link: <span style="color:#57534e;word-break:break-all">{E(link)}</span></td></tr>
 </table></td></tr></table></body></html>"""

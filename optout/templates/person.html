@@ -15,6 +15,19 @@
    <form method="post" action="/person/{{p.id}}/scan" class="flex-1 sm:flex-none">{{csrf()}}<button class="btn-p w-full">{{icon('scan')}}Scan now</button></form></div>
  </div>
 
+{% if invite %}{% set iv = invite %}
+ <section id="invite" class="tile mb-3"><div class="card-w p-4 sm:p-5">
+  <div class="flex flex-wrap items-center gap-3">
+   <span class="w-9 h-9 rounded-full bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-500">{{icon('mail','w-4 h-4')}}</span>
+   <div class="flex-1 min-w-[220px]"><div class="flex items-center gap-2 text-[14px] font-semibold">Invite {{pill(iv.label, iv.color)}}</div>
+    <div class="text-[12.5px] text-stone-500 mt-0.5">{{iv.detail}}{% if iv.email %} · <span class="font-mono">{{iv.email}}</span>{% endif %}</div></div>
+   {% if iv.label != 'Accepted' %}<form method="post" action="/person/{{p.id}}/invite">{{csrf()}}<button class="btn">{{icon('swap')}}{{'Send invite' if iv.label == 'Not sent' else 'Resend invite'}}</button></form>{% endif %}
+  </div>
+  {% if iv.link %}<div class="mt-3 flex items-center gap-2"><input id="invlink" readonly value="{{iv.link}}" class="input font-mono !h-9 !text-[12px] flex-1 min-w-0"><button type="button" class="btn !h-9" data-copy="invlink">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
+   <p class="text-[11.5px] text-stone-500 mt-1.5">{{'Emailed to them. ' if iv.just == 'sent' else 'Not emailed: email is not set up yet. Send this link yourself. '}}Single use, expires in 7 days. Resending makes a new link.</p>{% endif %}
+  <p class="text-[11.5px] text-stone-400 mt-2">{{iv.note}} No removal is filed until they accept and sign.</p>
+ </div></section>
+{% endif %}
  <div class="grid md:grid-cols-3 gap-3 mb-3">
   <div class="relative overflow-hidden rounded-[18px] p-5 min-h-[178px] flex flex-col text-ink {{ 'bg-[radial-gradient(120%_120%_at_0%_0%,#e7e5e4_0%,#ddd6fe_50%,#fde68a_100%)]' if (mc and not exposed) else 'bg-[radial-gradient(120%_120%_at_0%_0%,#c7d2fe_0%,#a5f3fc_45%,#bbf7d0_100%)]' if not exposed else 'bg-[radial-gradient(120%_120%_at_0%_0%,#fed7aa_0%,#fdba74_40%,#fca5a5_100%)]' }} dark:text-white {{'dark:bg-[radial-gradient(120%_120%_at_0%_0%,#312e81_0%,#164e63_55%,#14532d_100%)]' if not exposed else 'dark:bg-[radial-gradient(120%_120%_at_0%_0%,#7c2d12_0%,#9a3412_45%,#7f1d1d_100%)]'}}">
    <div class="flex items-start justify-between"><span class="text-[13px] font-medium opacity-80">{{'Monitoring every week' if p.enabled else 'Monitoring paused'}}</span><span class="w-9 h-9 rounded-xl bg-white/50 dark:bg-white/10 backdrop-blur grid place-items-center">{{icon('shield' if not exposed else 'alert')}}</span></div>
@@ -129,4 +142,22 @@
  {% else %}<li class="pl-5 text-[12.5px] text-stone-500">No activity yet. Run a scan to start.</li>{% endfor %}</ol></div>
 </aside>
 </div>
+{% if me().role == 'admin' and me().person_id != p.id %}
+<section class="mt-8 rounded-[18px] ring-1 ring-rose-200 dark:ring-rose-500/20 bg-white dark:bg-neutral-900 p-5 flex flex-wrap items-center gap-4" aria-labelledby="dz">
+ <div class="flex-1 min-w-[240px]"><div id="dz" class="text-[14px] font-semibold text-rose-700 dark:text-rose-300">Delete {{p.first or p.full_name}}</div>
+  <div class="text-[12.5px] text-stone-500 mt-0.5">Removes their profile, listings, requests, emails, authorization, login and screenshots. This can't be undone.</div>
+  {% if delerr == 'name' %}<div class="text-[12.5px] text-rose-600 mt-1">The name didn't match, so nothing was deleted.</div>{% endif %}</div>
+ <button type="button" class="btn !text-rose-600 !ring-rose-200" data-open-dialog="del-dlg">{{icon('trash')}}Delete person</button>
+</section>
+<dialog id="del-dlg" class="rounded-[20px] p-0 w-[min(440px,92vw)] backdrop:bg-black/40 bg-white dark:bg-neutral-900 text-ink dark:text-white shadow-2xl">
+ <form method="post" action="/person/{{p.id}}/delete" class="p-6">{{csrf()}}
+  <div class="w-10 h-10 rounded-full bg-rose-50 dark:bg-rose-500/10 text-rose-600 grid place-items-center">{{icon('trash','w-4 h-4')}}</div>
+  <h2 class="text-[18px] font-semibold tracking-[-0.02em] mt-4">Delete {{p.full_name}}?</h2>
+  <p class="text-[13px] text-stone-500 mt-1.5">Everything tied to this person is erased: listings, broker requests, sent and received emails, authorization, their login and screenshots. Queued emails are cancelled. This can't be undone.</p>
+  <label class="block text-[12.5px] font-medium mt-5">Type <span class="font-mono bg-stone-100 dark:bg-white/10 rounded px-1">{{p.full_name}}</span> to confirm</label>
+  <input name="confirm_name" autocomplete="off" spellcheck="false" class="input mt-1.5 w-full" data-match="{{p.full_name}}" data-enables="del-go">
+  <div class="flex justify-end gap-2 mt-6"><button type="button" class="btn" data-close-dialog>Cancel</button><button id="del-go" class="btn-p !bg-rose-600 !text-white disabled:opacity-40" disabled>Delete permanently</button></div>
+ </form>
+</dialog>
+{% endif %}
 {% endblock %}

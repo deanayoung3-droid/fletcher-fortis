@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, user_id INT NOT
 MIGRATE = [("outbox", "listing_id INT"), ("outbox", "reply_to TEXT"), ("people", "profile TEXT"), ("people", "send_enabled INT DEFAULT 0"),
            ("listings", "dedupe TEXT"), ("listings", "score INT"),
            ("people", "esign_name TEXT"), ("people", "esign_at TEXT"), ("people", "esign_ip TEXT"), ("people", "esign_user TEXT"), ("people", "send_from TEXT"), ("people", "esign_sig TEXT"), ("people", "drop_at TEXT"), ("users", "email TEXT"), ("users", "onboarded INT DEFAULT 1"), ("users", "name TEXT"),
-           ("outbox", "stage INT DEFAULT 0"), ("outbox", "channel TEXT"), ("outbox", "html TEXT")]
+           ("outbox", "stage INT DEFAULT 0"), ("outbox", "channel TEXT"), ("outbox", "html TEXT"),
+           ("users", "invite_state TEXT"), ("users", "invite_sent_at TEXT"), ("users", "invite_opened_at TEXT")]
 # columns holding PII: encrypted at rest
 ENCRYPTED = {"people": ["full_name", "first", "last", "city", "prior_cities", "email", "phone", "notes", "profile", "esign_name", "esign_ip", "send_from", "esign_sig"],
              "listings": ["url", "fields"], "events": ["detail"], "outbox": ["subject", "body", "html"], "users": ["email", "name"],

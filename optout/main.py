@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox
+import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites
 from db import now, event
 from crypto import enc
 import logsafe; logsafe.install()
@@ -162,6 +162,7 @@ def logout(r: Request, _=Depends(csrf)):
 def invite_page(r: Request, tok: str):
     u = auth.invite_user(tok)
     if not u: raise HTTPException(404)
+    invites.opened(u)
     return T.TemplateResponse(r, "password.html", {"invite": tok, "uname": u["username"], "error": None, "first": True})
 
 @app.post("/invite/{tok}")
@@ -194,12 +195,12 @@ def pw_change(r: Request, current: str = Form(""), password: str = Form(""), pas
 
 # ---------- family admin ----------
 @app.get("/family", response_class=HTMLResponse)
-def family(r: Request, inv: str = "", who: str = "", err: str = "", sent: str = ""):
+def family(r: Request, inv: str = "", who: str = "", err: str = "", sent: str = "", deleted: str = ""):
     auth.require_admin(r)
     users = {u["person_id"]: u for u in db.conn().execute("SELECT * FROM users").fetchall()}
     people = C.execute("SELECT * FROM people ORDER BY COALESCE((SELECT 1 FROM users WHERE users.person_id=people.id AND users.role='admin'),0) DESC, rowid").fetchall()
     link = f"{(config.get('PUBLIC_URL') or str(r.base_url)).rstrip('/')}/invite/{inv}" if inv and re.fullmatch(r"[\w-]{20,64}", inv) else None
-    return T.TemplateResponse(r, "family.html", {"people": people, "users": users, "stats": {p["id"]: stats(p["id"]) for p in people}, "invite_link": link, "who": who, "err": err[:200], "generated": None, "sent": sent[:120]})
+    return T.TemplateResponse(r, "family.html", {"people": people, "users": users, "stats": {p["id"]: stats(p["id"]) for p in people}, "invite_link": link, "who": who, "err": err[:200], "generated": None, "sent": sent[:120], "deleted": bool(deleted)})
 
 def _fam_err(pid, msg): return RedirectResponse(f"/family?who={pid}&err={quote(msg)}", 303)
 
@@ -215,7 +216,8 @@ def family_account(r: Request, pid: str, action: str = Form(...), username: str 
             c.execute("INSERT INTO users(username,role,person_id,must_change,created) VALUES(?,?,?,1,?)", (username, "member", pid, now())); c.commit()
             u = c.execute("SELECT * FROM users WHERE person_id=?", (pid,)).fetchone()
         if action == "invite":
-            tok = auth.make_invite(u["id"]); event(C, "invite_created", "", pid); return RedirectResponse(f"/family?inv={tok}&who={pid}", 303)
+            p_ = C.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
+            tok, st = invites.send(pid, _invite_email(pid), p_["first"] or pid, r.state.user["username"], str(r.base_url)); return RedirectResponse(f"/family?inv={tok}&who={pid}&sent={st}", 303)
         err = auth.pw_problem(password, u["username"])
         if err: return _fam_err(pid, err)
         c.execute("UPDATE users SET pw_hash=?, must_change=1 WHERE id=?", (auth.hash_pw(password), u["id"])); c.commit(); auth.end_user_sessions(u["id"])
@@ -314,13 +316,42 @@ def home(r: Request):
         "brokers": _brokers(), "events": C.execute("SELECT * FROM events WHERE kind NOT IN ('scan_finished','scan_result') ORDER BY ts DESC, id DESC LIMIT 12").fetchall(),
         "alerts": C.execute("SELECT l.*, p.full_name FROM listings l JOIN people p ON p.id=l.person_id WHERE status='reappeared'").fetchall(), "setup_card": onboarding.show_card(C, u)})
 
+def _invite_ctx(r, p, inv, ist):
+    if r.state.user["role"] != "admin" or p["id"] == r.state.user["person_id"]: return {"invite": None}
+    u = db.conn().execute("SELECT * FROM users WHERE person_id=?", (p["id"],)).fetchone()
+    lab, col, det = invites.status(p, u)
+    link = invites.link_for(inv, str(r.base_url)) if inv and re.fullmatch(r"[\w-]{20,64}", inv) else None
+    return {"invite": {"label": lab, "color": col, "detail": det, "link": link, "just": ist if ist in ("sent", "pending") else "", "email": _invite_email(p["id"]), "ready": invites.email_ready(), "note": invites.DRY_NOTE}}
+
 @app.get("/person/{pid}", response_class=HTMLResponse)
-def person(r: Request, pid: str, f: str = "", saved: str = "", signed: str = "", welcome: str = ""):
+def person(r: Request, pid: str, f: str = "", saved: str = "", signed: str = "", welcome: str = "", delerr: str = "", inv: str = "", ist: str = ""):
     p = _person_for(r, pid)
     if f and f not in STATUS: f = ""
     q = "SELECT * FROM listings WHERE person_id=?" + (" AND status=?" if f else " AND status NOT IN ('not_me','checked_clear')") + " ORDER BY CASE status WHEN 'reappeared' THEN 0 WHEN 'candidate' THEN 1 ELSE 2 END, COALESCE(score,0) DESC, last_seen DESC"  # nosec B608
     return T.TemplateResponse(r, "person.html", {"p": p, "prof": profiles.get(p), "stats": stats(pid), "f": f, "listings": C.execute(q, (pid, f) if f else (pid,)).fetchall(),
-        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p)})
+        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p), "delerr": delerr[:10], **_invite_ctx(r, p, inv, ist)})
+
+def _invite_email(pid):
+    u = db.conn().execute("SELECT email FROM users WHERE person_id=?", (pid,)).fetchone()
+    if u and u["email"]: return u["email"]
+    p = C.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone(); em = (profiles.get(p).get("emails") or [""]) if p else [""]
+    return (em[0] if em else "") or (p["email"] if p else "") or ""
+
+@app.post("/person/{pid}/invite")
+def person_invite(r: Request, pid: str, _=Depends(csrf)):
+    auth.require_admin(r); p = _person_for(r, pid)
+    if pid == r.state.user["person_id"]: raise HTTPException(400, "That's your own profile.")
+    email = _invite_email(pid)
+    if not email: return RedirectResponse(f"/person/{pid}/profile?err=" + quote("Add their email first, then resend the invite."), 303)
+    tok, st = invites.send(pid, email, p["first"] or pid, r.state.user["username"], str(r.base_url))
+    return RedirectResponse(f"/person/{pid}?inv={tok}&ist={st}#invite", 303)
+
+@app.post("/person/{pid}/delete")
+def person_delete(r: Request, pid: str, confirm_name: str = Form(""), _=Depends(csrf)):
+    auth.require_admin(r); p = _person_for(r, pid)
+    if r.state.user["person_id"] == pid: return RedirectResponse(f"/person/{pid}?delerr=self", 303)
+    if " ".join(confirm_name.split()).casefold() != " ".join((p["full_name"] or "").split()).casefold(): return RedirectResponse(f"/person/{pid}?delerr=name", 303)
+    persondel.delete(C, pid); return RedirectResponse("/family?deleted=1", 303)
 
 @app.get("/person/{pid}/profile", response_class=HTMLResponse)
 def profile_page(r: Request, pid: str, saved: str = "", onboard: str = ""):
@@ -418,19 +449,27 @@ def _next_scan():
 T.env.globals.update(next_scan=_next_scan, pevents=lambda pid, n=14: C.execute("SELECT * FROM events WHERE person_id=? AND kind NOT IN ('scan_finished','scan_result') ORDER BY ts DESC, id DESC LIMIT ?", (pid, n)).fetchall())
 
 @app.get("/add", response_class=HTMLResponse)
-def add_form(r: Request): auth.require_admin(r); return T.TemplateResponse(r, "add.html", {"errors": []})
+def add_form(r: Request): auth.require_admin(r); return T.TemplateResponse(r, "add.html", {"errors": [], "v": {}, "email_ready": invites.email_ready(), "me_exists": bool(C.execute("SELECT 1 FROM people WHERE id=?", (r.state.user["person_id"],)).fetchone())})
 
 @app.post("/add")
-def add(r: Request, full_name: str = Form(...), city: str = Form(...), state: str = Form("CA"), needs_auth: str = Form("1"), _=Depends(csrf)):
-    auth.require_admin(r); parts = full_name.split()
+def add(r: Request, full_name: str = Form(...), city: str = Form(...), state: str = Form("CA"), needs_auth: str = Form("1"), email: str = Form(""), _=Depends(csrf)):
+    auth.require_admin(r); parts = full_name.split(); email = email.strip().lower()
+    me_pid = r.state.user["person_id"]; is_me = needs_auth == "0"
     prof, errors = profiles.validate({"name_kind": ["legal"], "name_first": [" ".join(parts[:-1])], "name_middle": [""], "name_last": [parts[-1] if parts else ""],
                                       "addr_street": [""], "addr_city": [city], "addr_state": [state], "addr_current": ["0"]})
     if len(parts) < 2: errors.insert(0, "Enter a first and last name.")
-    if errors: return T.TemplateResponse(r, "add.html", {"errors": errors}, status_code=400)
-    base = re.sub(r"[^a-z0-9]", "", parts[0].lower())[:24] or "member"; pid = base; i = 2
-    while C.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone(): pid = f"{base}{i}"; i += 1
-    profiles.new_person(C, pid, prof, needs_auth == "1"); event(C, "person_added", "", pid)
-    return RedirectResponse(f"/person/{pid}/profile", 303)
+    if is_me and C.execute("SELECT 1 FROM people WHERE id=?", (me_pid,)).fetchone(): errors.append("Your own profile already exists. Anyone else needs an email so they can accept the invite.")
+    if not is_me and not profiles.EMAIL_OK.match(email): errors.append("Enter their email. They get an invite to set a password and sign before anything is filed.")
+    if errors: return T.TemplateResponse(r, "add.html", {"errors": errors, "v": {"full_name": full_name, "city": city, "state": state, "email": email}, "email_ready": invites.email_ready()}, status_code=400)
+    if is_me: pid = me_pid
+    else:
+        base = re.sub(r"[^a-z0-9]", "", parts[0].lower())[:24] or "member"; pid = base; i = 2
+        while C.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone() or db.conn().execute("SELECT 1 FROM users WHERE username=?", (pid,)).fetchone(): pid = f"{base}{i}"; i += 1
+        prof["emails"] = [email]
+    profiles.new_person(C, pid, prof, not is_me); event(C, "person_added", "", pid)
+    if is_me: return RedirectResponse(f"/person/{pid}/profile", 303)
+    tok, st = invites.send(pid, email, " ".join(parts[:-1]), r.state.user["username"], str(r.base_url))
+    return RedirectResponse(f"/person/{pid}?inv={tok}&ist={st}", 303)
 
 def _safe_shot(path):
     """Only files inside SHOT_DIR, resolved (no ../ or symlink escapes)."""
@@ -759,12 +798,20 @@ def _wiz(r, step, status_code=200, **ctx):
         except OSError: key = ""
     base = (config.get("PUBLIC_URL") or str(r.base_url)).rstrip("/")
     person = C.execute("SELECT * FROM people WHERE id=?", (u["person_id"],)).fetchone() if u else None
-    worker = ""
+    worker = ""; md = (config.get("MAIL_DOMAIN") or (config.get("FROM_ADDRESS") or "").partition("@")[2] or "").lower()
+    if step == 3:
+        ctx.setdefault("dns_rows", [("dkim", "TXT", "resend._domainkey", "p=MIGf… (copy from Resend)"),
+            ("mx_send", "CNAME", "send", "send.forge.rmta.net   or   MX 10 feedback-smtp.us-east-1.amazonses.com"),
+            ("spf", "TXT", "send", "v=spf1 … ~all   (covered by the send CNAME in the newer setup)"),
+            ("rsend", "CNAME", "rsend", "rsend.forge.rmta.net   (newer setup only)"),
+            ("dmarc", "TXT", "_dmarc", "v=DMARC1; p=none;")])
+    if step == 4:
+        ctx.setdefault("last_in", (C.execute("SELECT MAX(ts) t FROM inbox").fetchone() or {}).get("t") or "")
     if step == 4:
         try: worker = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "cloudflare-email-worker.js")).read()
         except OSError: worker = ""
     ctx = {"steps": onboarding.STEPS, "step": step, "st": st, "cfg": config, "error": None, "msg": "", "v": {}, "tzs": TZ_COMMON, "states": config.US_STATES,
-           "items": onboarding.checklist(C, u) if (u and step == 7) else [], "data_key": key, "key_source": crypto.KEY_SOURCE, "base": base, "person": person, "worker": worker,
+           "items": onboarding.checklist(C, u) if (u and step == 7) else [], "data_key": key, "key_source": crypto.KEY_SOURCE, "base": base, "person": person, "worker": worker, "mail_domain": md, "dns": None,
            "law": letters.law(config.get("HOME_STATE") or "CA")[0], **ctx}
     return T.TemplateResponse(r, "setup.html", ctx, status_code=status_code)
 
@@ -803,11 +850,13 @@ def setup_admin(r: Request, name: str = Form(""), username: str = Form(""), emai
     resp = RedirectResponse("/setup/2", 303); auth.set_cookie(resp, auth.create_session(u["id"], auth.client_ip(r))); resp.delete_cookie(onboarding.COOKIE, path="/setup"); return resp
 
 @app.get("/setup/{n}", response_class=HTMLResponse)
-def setup_step(r: Request, n: int, msg: str = ""):
+def setup_step(r: Request, n: int, msg: str = "", dns: str = "", probe: str = ""):
     auth.require_admin(r)
     if not 1 <= n <= 7: raise HTTPException(404)
     if n == 4 and not config.get("INBOUND_SECRET"): config.save({"INBOUND_SECRET": secrets.token_urlsafe(32)})
-    return _wiz(r, n, msg=msg[:300])
+    extra = {}
+    if n == 3 and dns: extra["dns"] = golive.setup_dns()
+    return _wiz(r, n, msg=msg[:300], **extra)
 
 def _next(n): return RedirectResponse(f"/setup/{min(n + 1, 7)}", 303)
 @app.post("/setup/{n}")
@@ -889,11 +938,7 @@ def onboard_invite(r: Request, full_name: str = Form(""), email: str = Form(""),
     while C.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone() or db.conn().execute("SELECT 1 FROM users WHERE username=?", (pid,)).fetchone(): pid = f"{base}{i}"; i += 1
     prof = {"names": [{"kind": "legal", "first": " ".join(parts[:-1]), "middle": "", "last": parts[-1]}], "addresses": [], "phones": [], "emails": [email], "relatives": [], "birth_year": None, "age_min": None, "age_max": None}
     profiles.new_person(C, pid, prof, True); event(C, "person_added", "onboarding invite", pid)
-    c = db.conn(); c.execute("INSERT INTO users(username,role,person_id,must_change,created,email,onboarded) VALUES(?,?,?,1,?,?,0)", (pid, "member", pid, now(), enc(email))); c.commit()
-    u = c.execute("SELECT * FROM users WHERE username=?", (pid,)).fetchone(); tok = auth.make_invite(u["id"])
-    link = f"{(config.get('PUBLIC_URL') or str(r.base_url)).rstrip('/')}/invite/{tok}"
-    subj, text, h = mailer.onboarding(parts[0], r.state.user["username"], link)
-    st = mailer.send(email, subj, text, h, kind="onboarding", person_id=pid); event(C, "invite_created", f"onboarding email: {st}", pid)
+    tok, st = invites.send(pid, email, parts[0], r.state.user["username"], str(r.base_url))
     return RedirectResponse(f"/family?inv={tok}&who={pid}&sent={quote(st)}", 303)
 
 @app.get("/admin/heartbeat/onboarding-email")

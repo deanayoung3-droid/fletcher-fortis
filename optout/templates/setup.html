@@ -1,4 +1,4 @@
-{% from "_ui.html" import icon, brand with context %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Set up · {{APP}}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+{% from "_ui.html" import icon, brand with context %}{% macro why(text) %}<details class="mt-3 group text-[12.5px] text-stone-500"><summary class="cursor-pointer select-none inline-flex items-center gap-1 hover:text-ink dark:hover:text-white">Why?</summary><p class="mt-1.5 max-w-[520px] leading-relaxed">{{text}}</p></details>{% endmacro %}{% macro card(n, title) %}<li class="rounded-2xl ring-1 ring-stone-200/80 dark:ring-white/10 p-4 sm:p-5 flex gap-3.5"><span class="w-7 h-7 shrink-0 rounded-full bg-stone-100 dark:bg-white/10 grid place-items-center text-[12px] font-semibold font-mono">{{n}}</span><div class="flex-1 min-w-0 text-[13.5px] text-stone-600 dark:text-neutral-300 leading-relaxed"><div class="text-[14.5px] font-medium text-ink dark:text-white mb-1">{{title}}</div>{{caller()}}</div></li>{% endmacro %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Set up · {{APP}}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <script src="/static/theme.js"></script><link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/static/app.css"></head>
 <body class="min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased">
 {% set cur = steps[step-1] %}{% set skipped = st.get('skipped', []) %}{% set optional = cur[2] %}
@@ -27,7 +27,7 @@
    {% if error %}<div role="alert" class="mt-4 rounded-xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-3.5 py-2.5 text-[13px] text-rose-700 dark:text-rose-300 flex gap-2 items-center">{{icon('alert')}}{{error}}</div>{% endif %}
    {% if msg %}<div role="status" class="mt-4 rounded-xl {{'bg-emerald-50 ring-emerald-200 text-emerald-800 dark:bg-emerald-500/10 dark:ring-emerald-500/20 dark:text-emerald-300' if ': sent' in msg else 'bg-amber-50 ring-amber-200/70 text-amber-800 dark:bg-amber-400/10 dark:ring-amber-400/20 dark:text-amber-200'}} ring-1 px-3.5 py-2.5 text-[13px] flex gap-2 items-center">{{icon('mail')}}{{msg}}</div>{% endif %}
    <form method="post" action="{{'/setup' if step == 1 and not me() else '/setup/' ~ step}}" class="flex-1 flex flex-col mt-3" autocomplete="off">{{csrf()}}<button name="action" value="{{'finish' if step == 7 else 'next'}}" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden"></button>
-   <div class="flex-1 max-w-[560px]">
+   <div class="flex-1 {{'max-w-[680px]' if step in (3, 4) else 'max-w-[560px]'}}">
 {% if step == 1 %}{% set u = me() %}
     <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">{{'Your admin account' if u else 'Welcome. Create the admin account.'}}</h1>
     <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">{{'Your account is set up. You can update your name and email here.' if u else "You'll manage the household from this account and can invite family members afterwards. It takes about five minutes."}}</p>
@@ -51,32 +51,74 @@
      <div><label class="flabel" for="tz">Time zone</label><input class="input font-mono" id="tz" name="TZ" list="tzl" required value="{{v.TZ or cfg.get('TZ') or 'America/Los_Angeles'}}"><datalist id="tzl">{% for t in tzs %}<option value="{{t}}">{% endfor %}</datalist><p class="text-[11.5px] text-stone-500 mt-1">Scans and the weekly email run on this clock.</p></div>
      <div><label class="flabel" for="hs">State of residence</label><select class="input" id="hs" name="HOME_STATE">{% for s in states %}<option {{'selected' if (v.HOME_STATE or cfg.get('HOME_STATE')) == s}}>{{s}}</option>{% endfor %}</select><p class="text-[11.5px] text-stone-500 mt-1">Picks the privacy law requests cite. Now: <span class="font-medium text-stone-700 dark:text-neutral-300">{{law}}</span>.</p></div>
     </div>
-{% elif step == 3 %}
+{% elif step == 3 %}{% set md = mail_domain or 'yourdomain.com' %}
     <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">Email sending</h1>
-    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">Removal requests go out from your own domain through <a class="underline underline-offset-2" href="https://resend.com" target="_blank" rel="noopener">Resend</a> (the free tier is enough for a family). Dry run stays on, so nothing is sent to brokers until you switch it off in Heartbeat.</p>
-    <div class="mt-7 grid sm:grid-cols-2 gap-4">
-     <div class="sm:col-span-2"><label class="flabel" for="rk">Resend API key</label><input class="input font-mono" id="rk" name="RESEND_API_KEY" type="password" autocomplete="new-password" placeholder="{{cfg.masked('RESEND_API_KEY') or 're_…'}}"><p class="text-[11.5px] text-stone-500 mt-1">Resend → API Keys → Create (sending access). Write-only: leave empty to keep the current key.</p></div>
-     <div><label class="flabel" for="fa">From address</label><input class="input font-mono" id="fa" name="FROM_ADDRESS" type="email" placeholder="privacy@yourdomain.com" value="{{v.FROM_ADDRESS or cfg.get('FROM_ADDRESS') or ''}}"></div>
-     <div><label class="flabel" for="fnm">From name <span class="text-stone-400 font-normal">· optional</span></label><input class="input" id="fnm" name="FROM_NAME" maxlength="80" placeholder="{{APP}} Privacy" value="{{v.FROM_NAME or cfg.get('FROM_NAME') or ''}}"></div>
-    </div>
-    <div class="mt-5 flex flex-wrap items-center gap-3 rounded-xl bg-stone-50 dark:bg-white/[.04] ring-1 ring-stone-200/70 dark:ring-white/10 p-4">
-     <div class="text-[12.5px] text-stone-600 dark:text-neutral-400 flex-1 min-w-[220px]">Sends one message to <span class="font-medium text-ink dark:text-white">{{me().email}}</span> to check the key and domain. This is the only email that goes out while dry run is on.</div>
-     <button class="btn" name="action" value="test">{{icon('mail')}}Send test email</button></div>
-    <p class="text-[12px] text-stone-500 mt-4">Add your domain in Resend first and create the SPF, DKIM and DMARC records it lists. Heartbeat → Check DNS verifies them.</p>
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2">Send removal requests from your own domain. About 10 minutes.</p>
+    {{why("Brokers take requests more seriously from a real domain, and the DNS records prove the mail is really from you so it doesn't land in spam. Resend's free tier is plenty for a family. Dry run stays on: nothing goes to brokers until you switch it off in Heartbeat.")}}
+    <ol class="mt-6 flex flex-col gap-3">
+     {% call card(1, "Create a free Resend account") %}Sign up at <a class="underline underline-offset-2" href="https://resend.com/signup" target="_blank" rel="noopener">resend.com</a>.{% endcall %}
+     {% call card(2, "Add your domain in Resend") %}Open <b class="font-medium">Domains → Add domain</b> and enter <span class="font-mono bg-stone-100 dark:bg-white/10 rounded px-1">{{md}}</span>.{% endcall %}
+     {% call card(3, "Copy the records into Cloudflare") %}
+      In Cloudflare, open <b class="font-medium">{{md}} → DNS → Records → Add record</b> for each row Resend shows. Set <b class="font-medium">Proxy status to DNS only</b> (grey cloud).
+      <div class="mt-3 rounded-xl ring-1 ring-stone-200/80 dark:ring-white/10 overflow-hidden text-[12.5px]">
+       <div class="grid grid-cols-[64px_150px_1fr_84px] gap-2 px-3 py-2 bg-stone-50 dark:bg-white/[.04] text-[11.5px] text-stone-500"><span>Type</span><span>Name</span><span>Value</span><span class="text-right">Status</span></div>
+       {% for k, typ, name, val in dns_rows %}{% set d = dns.get(k) if dns else None %}
+       <div class="grid grid-cols-[64px_150px_1fr_84px] gap-2 px-3 py-2.5 border-t border-stone-100 dark:border-white/[.06] items-start {{'bg-emerald-50/60 dark:bg-emerald-500/[.06]' if d and d.ok}}">
+        <span class="font-mono">{{typ}}</span><span class="font-mono break-all">{{name}}</span><span class="font-mono text-stone-600 dark:text-neutral-300 break-all">{{val}}{% if d %}<span class="block text-[11px] text-stone-400 mt-0.5">found: {{d.detail}}</span>{% endif %}</span>
+        <span class="text-right">{% if not dns %}<span class="text-stone-400">–</span>{% elif d and d.ok %}<span class="text-emerald-600 dark:text-emerald-400 font-medium inline-flex items-center gap-1">{{icon('check','w-3.5 h-3.5')}}OK</span>{% else %}<span class="text-amber-600 font-medium">Missing</span>{% endif %}</span></div>{% endfor %}
+      </div>
+      <p class="text-[11.5px] text-stone-500 mt-2">Resend shows either the newer <span class="font-mono">CNAME</span> records or the older <span class="font-mono">MX</span> + <span class="font-mono">TXT</span> pair for <span class="font-mono">send</span>. Both work. Copy the DKIM value exactly from Resend.</p>
+      <a href="/setup/3?dns=1#dns" id="dns" class="btn mt-3">{{icon('shield')}}Check DNS</a>{% if dns %}<span class="text-[12px] text-stone-500 ml-2">New records can take a few minutes to show up.</span>{% endif %}
+     {% endcall %}
+     {% call card(4, "Paste the API key") %}
+      In Resend open <b class="font-medium">API Keys → Create API key</b> (permission: Sending access).
+      <div class="mt-3 grid sm:grid-cols-2 gap-3">
+       <div class="sm:col-span-2"><label class="flabel" for="rk">Resend API key</label><input class="input font-mono" id="rk" name="RESEND_API_KEY" type="password" autocomplete="new-password" placeholder="{{cfg.masked('RESEND_API_KEY') or 're_…'}}"><p class="text-[11.5px] text-stone-500 mt-1">Leave empty to keep the saved key.</p></div>
+       <div><label class="flabel" for="fa">From address</label><input class="input font-mono" id="fa" name="FROM_ADDRESS" type="email" placeholder="privacy@{{md}}" value="{{v.FROM_ADDRESS or cfg.get('FROM_ADDRESS') or ''}}"></div>
+       <div><label class="flabel" for="fnm">From name <span class="text-stone-400 font-normal">· optional</span></label><input class="input" id="fnm" name="FROM_NAME" maxlength="80" placeholder="{{APP}} Privacy" value="{{v.FROM_NAME or cfg.get('FROM_NAME') or ''}}"></div>
+      </div>
+     {% endcall %}
+     {% call card(5, "Send yourself a test") %}
+      <div class="flex flex-wrap items-center gap-3"><span class="flex-1 min-w-[200px]">{% if me().email %}One email to <span class="font-medium text-ink dark:text-white">{{me().email}}</span>. Nothing else is sent.{% else %}Add your email in step 1 first, then send one test to it.{% endif %}</span>
+      <button class="btn" name="action" value="test">{{icon('mail')}}Send test email</button></div>
+     {% endcall %}
+    </ol>
 {% elif step == 4 %}{% set hook = base ~ '/inbound/email' %}
     <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">Inbound replies</h1>
-    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 leading-relaxed">Brokers reply and send verification links. A free Cloudflare Email Worker forwards those messages to the app, which files them on the right listing and opens verification links for you.</p>
-    <ol class="mt-7 flex flex-col gap-5 text-[13.5px]">
-     <li class="flex gap-3"><span class="w-6 h-6 shrink-0 rounded-full ring-1 ring-stone-300 dark:ring-white/15 grid place-items-center text-[11px] font-mono">1</span><div>In Cloudflare, open your domain → <b class="font-medium">Email → Email Routing</b> and turn it on. Cloudflare adds the MX records.</div></li>
-     <li class="flex gap-3"><span class="w-6 h-6 shrink-0 rounded-full ring-1 ring-stone-300 dark:ring-white/15 grid place-items-center text-[11px] font-mono">2</span><div class="flex-1 min-w-0">Create a Worker (<b class="font-medium">Workers → Create → Hello World</b>), replace its code with this, and deploy:
-      <div class="mt-2 relative"><textarea id="wcode" readonly rows="6" class="w-full rounded-[10px] bg-stone-50 dark:bg-neutral-900 ring-1 ring-stone-200 dark:ring-white/10 p-3 font-mono text-[11.5px] leading-relaxed resize-none outline-none">{{worker}}</textarea>
-       <button type="button" class="btn !h-8 !px-3 !text-[12px] absolute top-2 right-2" data-copy="wcode">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div></div></li>
-     <li class="flex gap-3"><span class="w-6 h-6 shrink-0 rounded-full ring-1 ring-stone-300 dark:ring-white/15 grid place-items-center text-[11px] font-mono">3</span><div class="flex-1 min-w-0">In the Worker's <b class="font-medium">Settings → Variables</b>, add these two:
-      <div class="mt-2 grid gap-2">
-       <div class="flex items-center gap-2"><span class="w-[120px] shrink-0 font-mono text-[12px] text-stone-500">APP_URL</span><input id="wurl" class="input font-mono !h-9 !text-[12.5px]" readonly value="{{hook}}"><button type="button" class="btn !h-9 !px-3 !text-[12px]" data-copy="wurl">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
-       <div class="flex items-center gap-2"><span class="w-[120px] shrink-0 font-mono text-[12px] text-stone-500">INBOUND_SECRET</span><input id="wsec" class="input font-mono !h-9 !text-[12.5px]" readonly value="{{cfg.get('INBOUND_SECRET')}}"><button type="button" class="btn !h-9 !px-3 !text-[12px]" data-copy="wsec">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
-      </div><p class="text-[11.5px] text-stone-500 mt-1.5">Mark INBOUND_SECRET as a <b class="font-medium">Secret</b>. It was generated for you and is also in Heartbeat → Settings → Email.{% if 'localhost' in hook or '127.0.0.1' in hook %} Set a public URL in step 2 first: Cloudflare has to reach this address.{% endif %}</p></div></li>
-     <li class="flex gap-3"><span class="w-6 h-6 shrink-0 rounded-full ring-1 ring-stone-300 dark:ring-white/15 grid place-items-center text-[11px] font-mono">4</span><div>Back in Email Routing → <b class="font-medium">Routing rules</b>, send your from-address{% if cfg.get('FROM_ADDRESS') %} (<span class="font-mono">{{cfg.get('FROM_ADDRESS')}}</span>){% endif %} or a catch-all to the Worker.</div></li>
+    <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2">Let broker replies reach the app. All in Cloudflare, about 5 minutes.</p>
+    {{why("Brokers answer by email and often send a link you must click to confirm. Cloudflare Email Routing receives that mail for free and a small Worker passes it to this app, which files each reply on the right request and opens verification links for you.")}}
+    <ol class="mt-6 flex flex-col gap-3">
+     {% call card(1, "Turn on Email Routing") %}In Cloudflare open <b class="font-medium">{{mail_domain or 'your domain'}} → Email → Email Routing</b> and click <b class="font-medium">Enable</b>. Cloudflare adds its MX records for you.{% endcall %}
+     {% call card(2, "Create the Worker") %}
+      Go to <b class="font-medium">Workers &amp; Pages → Create → Start with Hello World</b>, name it <span class="font-mono">fletcher-inbound</span>, click <b class="font-medium">Deploy</b>, then <b class="font-medium">Edit code</b>. Replace everything with this code and click <b class="font-medium">Deploy</b>.
+      <div class="mt-3 relative"><textarea id="wcode" readonly rows="5" class="w-full rounded-[10px] bg-stone-50 dark:bg-neutral-900 ring-1 ring-stone-200 dark:ring-white/10 p-3 font-mono text-[11.5px] leading-relaxed resize-none outline-none">{{worker}}</textarea>
+       <button type="button" class="btn !h-8 !px-3 !text-[12px] absolute top-2 right-2" data-copy="wcode">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
+     {% endcall %}
+     {% call card(3, "Add two variables to the Worker") %}
+      Open the Worker's <b class="font-medium">Settings → Variables and Secrets → Add</b>. Paste each name into <b class="font-medium">Variable name</b> and each value into <b class="font-medium">Value</b>.
+      <div class="mt-3 rounded-xl ring-1 ring-stone-200/80 dark:ring-white/10 overflow-hidden text-[12.5px]">
+       <div class="grid grid-cols-[minmax(0,190px)_1fr_64px] gap-2 px-3 py-2 bg-stone-50 dark:bg-white/[.04] text-[11.5px] text-stone-500"><span>Variable name (Key)</span><span>Value</span><span>Type</span></div>
+       {% for kid, key, vid, val, secret in [('k1', 'APP_URL', 'wurl', hook, False), ('k2', 'INBOUND_SECRET', 'wsec', cfg.get('INBOUND_SECRET'), True)] %}
+       <div class="grid grid-cols-[minmax(0,190px)_1fr_64px] gap-2 px-3 py-2.5 border-t border-stone-100 dark:border-white/[.06] items-center">
+        <div class="flex items-center gap-1.5 min-w-0"><input id="{{kid}}" readonly value="{{key}}" class="input font-mono !h-8 !text-[12px] !px-2 min-w-0"><button type="button" class="btn !h-8 !px-2 !text-[11.5px] shrink-0" data-copy="{{kid}}" aria-label="Copy {{key}}">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
+        <div class="flex items-center gap-1.5 min-w-0"><input id="{{vid}}" readonly value="{{val}}" class="input font-mono !h-8 !text-[12px] !px-2 min-w-0"><button type="button" class="btn !h-8 !px-2 !text-[11.5px] shrink-0" data-copy="{{vid}}" aria-label="Copy value for {{key}}">{{icon('copy','w-3.5 h-3.5')}}<span>Copy</span></button></div>
+        <span class="text-[12px] {{'font-medium text-ink dark:text-white' if secret else 'text-stone-500'}} inline-flex items-center gap-1">{% if secret %}{{icon('lock','w-3.5 h-3.5')}}Secret{% else %}Text{% endif %}</span></div>{% endfor %}
+      </div>
+      <ul class="text-[11.5px] text-stone-500 mt-2 space-y-0.5 list-disc pl-4">
+       <li>The <b class="font-medium">Key</b> box gets the name (APP_URL), not the address.</li>
+       <li>Click <b class="font-medium">+ Add</b> for the second row.</li>
+       <li>Tick <b class="font-medium">Secret</b> (Type: Secret) only for INBOUND_SECRET. Then <b class="font-medium">Deploy</b>.</li>
+      </ul>
+      {% if 'localhost' in hook or '127.0.0.1' in hook %}<p class="text-[11.5px] text-amber-700 dark:text-amber-300 mt-2">Set a public URL in step 2 first: Cloudflare has to reach this address.</p>{% endif %}
+     {% endcall %}
+     {% call card(4, "Add the routing rule") %}
+      Back in <b class="font-medium">Email Routing → Routing rules → Create address</b>: custom address <span class="font-mono bg-stone-100 dark:bg-white/10 rounded px-1">{{(cfg.get('FROM_ADDRESS') or 'privacy@').split('@')[0]}}</span>, action <b class="font-medium">Send to a Worker</b>, destination <span class="font-mono">fletcher-inbound</span>. Save.
+     {% endcall %}
+     {% call card(5, "Test it") %}
+      <div class="flex flex-wrap items-center gap-3"><span class="flex-1 min-w-[200px]">Send any email to <span class="font-mono">{{cfg.get('FROM_ADDRESS') or ('privacy@' ~ (mail_domain or 'yourdomain.com'))}}</span> from your own mailbox, then check.
+       <span id="inb" class="block mt-1 {{'text-emerald-700 dark:text-emerald-400' if last_in else 'text-stone-500'}}">{% if last_in %}{{icon('check','w-3.5 h-3.5 inline')}} Last message received {{last_in[:16].replace('T',' ')}}.{% else %}No message received yet.{% endif %}</span></span>
+      <a href="/setup/4?probe=1#inb" class="btn">{{icon('mail')}}Test inbound</a></div>
+     {% endcall %}
     </ol>
 {% elif step == 5 %}
     <h1 class="text-[30px] leading-tight font-medium tracking-[-0.04em]">Optional keys and updates</h1>

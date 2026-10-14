@@ -2,6 +2,16 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.2.2] - 2026-10-14
+### Added
+- **Delete person** (admin, on the person page): type the name to confirm. Removes listings, broker requests, sent and received mail, authorization, login, sessions and screenshots, and cancels queued emails. The audit event holds counts only, no personal info.
+- **Family invites are always created** when you add someone (their email is now required, except for your own profile). The invite has a link to set a password, review and sign. Invites go to family, not brokers, so they are sent as soon as email is set up, even in dry run. Without email they show as "Invite pending: email not set up" with a copyable link, and they go out automatically once email works.
+- Person page shows the invite status (Not sent / Sent / Opened / Accepted / Expired) with **Resend invite**. Links expire after 7 days (was 72 hours), and resending makes a new link. No removal is filed until the person signs.
+### Changed
+- Setup wizard, Email sending: numbered steps (Resend account, add domain, copy records into Cloudflare as DNS only), the exact records with a live **Check DNS** that turns each row green (Resend CNAME or MX/TXT style), then API key and test email.
+- Setup wizard, Inbound: small numbered cards; the Worker variables shown as a "Variable name (Key)" / "Value" table with separate copy buttons, "+ Add" and "Secret only for INBOUND_SECRET" notes; the "Send to a Worker" routing rule; a **Test inbound** check showing when mail last arrived. Short copy with optional "Why?" notes.
+- Cloudflare Worker comments no longer mention Portainer or app.example.com.
+
 ## [1.2.1] - 2026-10-14
 ### Fixed
 - Heartbeat > Email DNS: Resend's newer setup (send.<domain> as a CNAME to send.forge.rmta.net) now counts as OK for SPF and the bounce MX, as does the classic amazonses setup.

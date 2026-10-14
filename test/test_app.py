@@ -177,7 +177,7 @@ def test_onboarding_invite_flow(admin):
     t = csrf(admin, "/family")
     r = admin.post("/family/onboard", data={"csrf": t, "full_name": "Test Person", "email": "test.person@example.com"}); assert r.status_code == 303
     tok = re.search(r"inv=([\w-]+)", r.headers["location"]).group(1); pid = re.search(r"who=(\w+)", r.headers["location"]).group(1)
-    o = db.conn().execute("SELECT state, channel FROM outbox WHERE channel='onboarding' ORDER BY id DESC").fetchone(); assert o["state"] == "dry_run"
+    assert "sent=pending" in r.headers["location"]   # no Resend key in tests: invite waits, link shown to the admin
     c = client(); assert c.get(f"/invite/{tok}").status_code == 200
     r = c.post(f"/invite/{tok}", data={"password": "orchid lantern river 2026", "password2": "orchid lantern river 2026"}); assert r.headers["location"] == f"/person/{pid}/profile?onboard=1"
     assert client().get(f"/invite/{tok}").status_code == 404   # single use

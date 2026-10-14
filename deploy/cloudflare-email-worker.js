@@ -1,6 +1,7 @@
 // Fletcher Fortis inbound mail: Cloudflare Email Routing -> this Email Worker -> POST raw message to the app.
-// Worker settings -> Variables: APP_URL = https://app.example.com/inbound/email
-//                              INBOUND_SECRET = (Secret) same value as INBOUND_SECRET in the Portainer stack
+// Worker Settings -> Variables and Secrets (the setup wizard, step 4, shows your exact values with copy buttons):
+//   APP_URL        (Text)   = https://<your app address>/inbound/email
+//   INBOUND_SECRET (Secret) = the value shown in setup step 4 / Heartbeat -> Settings -> Email
 // Optional: FORWARD_TO = a verified Email Routing destination address that also gets a copy of every message.
 export default {
   async email(message, env, ctx) {

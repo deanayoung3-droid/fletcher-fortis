@@ -46,7 +46,11 @@ def tick():
     try:
         import regreq; out.update({"registry_" + k: v for k, v in regreq.tick().items()})
     except Exception as e: event(c, "registry_error", f"{type(e).__name__}: {e}"[:200])
-    c.commit(); return out
+    c.commit()
+    try:
+        import invites; out["invites"] = invites.flush_pending()
+    except Exception as e: event(c, "invite_flush_failed", type(e).__name__)
+    return out
 
 def drop_needed(p):
     """California residents: one DROP request (residency must be verified by the person on the state site, so it stays a human step)."""

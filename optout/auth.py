@@ -1,5 +1,5 @@
 """App login: server-side sessions (random token, only its SHA-256 stored), bcrypt password hashes, per-session CSRF token,
-rate-limited login, admin-issued invite links (single use, 72 h) or an initial password that must be changed on first login."""
+rate-limited login, admin-issued invite links (single use, 7 days) or an initial password that must be changed on first login."""
 import os, secrets, time, datetime, threading, hmac
 import bcrypt
 from fastapi import Request, HTTPException
@@ -79,9 +79,9 @@ def require_person(r: Request, pid):
 def require_admin(r: Request):
     if not r.state.user or r.state.user["role"] != "admin": raise HTTPException(403, "Only the family admin can do that.")
 
-def make_invite(user_id):
+def make_invite(user_id, days=7):
     tok = secrets.token_urlsafe(24); c = conn()
-    c.execute("UPDATE users SET invite_hash=?, invite_expires=? WHERE id=?", (token_hash(tok), (datetime.datetime.now() + datetime.timedelta(hours=72)).isoformat(timespec="seconds"), user_id)); c.commit()
+    c.execute("UPDATE users SET invite_hash=?, invite_expires=? WHERE id=?", (token_hash(tok), (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat(timespec="seconds"), user_id)); c.commit()
     return tok
 def invite_user(tok):
     c = conn(); u = c.execute("SELECT * FROM users WHERE invite_hash=?", (token_hash(tok or "x"),)).fetchone()
