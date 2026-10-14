@@ -1,0 +1,47 @@
+# Fletcher Fortis on Fly.io: one always-on Machine + a 1 GB volume. About $7/month in iad.
+# Deploy from this folder:   cd deploy/fly && fly launch --copy-config --no-deploy --name <your-app-name>
+# then follow docs/CLOUD.md (volume, secret, deploy, certificate).
+app = "fletcherfortis"          # must be globally unique on Fly; change it if taken
+primary_region = "iad"          # Ashburn: Fly's cheapest region, US IP (US people-search sites often block non-US visitors)
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+swap_size_mb = 1024             # Chromium headroom on a 1 GB Machine
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PUBLIC_URL = "https://app.fletcherfortis.com"
+  FROM_ADDRESS = "privacy@fletcherfortis.com"
+  MAIL_DOMAIN = "fletcherfortis.com"
+  DRY_RUN = "true"              # nothing is sent until you switch it off in Heartbeat (type LIVE)
+  COOKIE_SECURE = "true"
+  TRUST_CF_HEADER = "false"     # DNS-only record: Fly's proxy sets the client IP; don't trust a spoofable CF header
+  TZ = "America/Los_Angeles"
+
+[[mounts]]
+  source = "ff_data"
+  destination = "/data"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"    # always on: the scheduler runs scans and follow-ups
+  auto_start_machines = true
+  min_machines_running = 1
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+[[http_service.checks]]
+  grace_period = "60s"
+  interval = "30s"
+  timeout = "5s"
+  method = "GET"
+  path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"                # 2gb costs about $6/month more if scans run out of memory
