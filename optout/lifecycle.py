@@ -14,6 +14,7 @@ def _days(ts):
 
 def tick():
     c = conn(); out = {"auto_approved": 0, "refiled": 0, "blind": 0, "reminders": 0, "escalations": 0}
+    if not remover.DRY: out["requeued_drafts"] = requeue_dry(c)
     auto = config.get("AUTO_APPROVE", "false") == "true"; amin = int(config.get("AUTO_APPROVE_MIN", "85") or 85)
     if auto:
         for l in c.execute("SELECT id FROM listings WHERE status='candidate' AND COALESCE(score,0)>=?", (amin,)).fetchall():
@@ -28,7 +29,7 @@ def tick():
         site = remover.SITE.get(l["site"], {}); p = c.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone()
         if site and p and remover.has_auth(p) and chain.blind(c, p, l, site): out["blind"] += 1
     if not remover.DRY:   # live: re-run the method chain for removals whose channels all failed last time (at most once a day)
-        for l in c.execute("SELECT id FROM listings WHERE status='approved' AND submitted_at IS NOT NULL AND submitted_at < datetime('now','localtime','-1 day')").fetchall():
+        for l in c.execute("SELECT id FROM listings WHERE status='approved' AND (submitted_at IS NULL OR submitted_at < datetime('now','localtime','-1 day'))").fetchall():
             remover.approve(l["id"]); out["chain_retried"] = out.get("chain_retried", 0) + 1
     import automation
     if automation.solver_on() and not remover.DRY:   # optional CAPTCHA solver: re-try forms that were waiting on a person
@@ -37,7 +38,7 @@ def tick():
                 remover.approve(l["id"]); out["captcha_solver"] = out.get("captcha_solver", 0) + 1
     fu, es = int(config.get("FOLLOWUP_DAYS") or 20), int(config.get("ESCALATE_DAYS") or 45)
     for o in c.execute("""SELECT o.*, l.status lst, l.site FROM outbox o JOIN listings l ON l.id=o.listing_id WHERE o.stage=0 AND o.channel='email'
-                          AND o.state IN ('sent','dry_run') AND l.status IN ('submitted','pending')""").fetchall():
+                          AND o.state IN ('sent','dry_run') AND (o.state='sent' OR ?) AND l.status IN ('submitted','pending')""", (1 if remover.DRY else 0,)).fetchall():
         d = _days(o["ts"]); have = {r["stage"] for r in c.execute("SELECT stage FROM outbox WHERE listing_id=? AND stage>0", (o["listing_id"],))}
         stage = 2 if d >= es and 2 not in have else 1 if fu <= d < es and 1 not in have else 0
         if not stage: continue
@@ -62,3 +63,18 @@ LIFECYCLE = [("Scan", "Weekly, plus after every profile edit"), ("Match", "Name,
              ("Submit", "Sent automatically (dry run until live)"), ("Verify", "Broker confirmation emails and links handled automatically"),
              ("Follow up", "Reminder on day 20, escalation citing the regulator on day 45"), ("Confirm", "Re-scan shows the page is gone: Removed"),
              ("Watch", "Weekly re-check; if it reappears a new request is filed automatically")]
+
+
+def requeue_dry(c):
+    """Going live: dry-run drafts were never sent. Put them back in the queue so the real request goes out first (rate limits
+    and consent still apply), instead of following up on letters the broker never received. Idempotent."""
+    n = 0
+    for l in c.execute("""SELECT l.id FROM listings l WHERE l.status IN ('submitted','pending') AND EXISTS (SELECT 1 FROM outbox o WHERE o.listing_id=l.id AND o.state='dry_run')
+                          AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.listing_id=l.id AND o.state IN ('sent','submitted'))""").fetchall():
+        c.execute("UPDATE listings SET status='approved', submitted_at=NULL WHERE id=?", (l["id"],)); n += 1
+    try:
+        n += c.execute("UPDATE reg_requests SET status='queued', stage=0, sent_at=NULL, updated=? WHERE status='dry_run'", (now(),)).rowcount
+    except Exception: pass
+    c.execute("UPDATE outbox SET state='dry_run_superseded' WHERE state='dry_run'")
+    if n: event(c, "golive_requeued", f"{n} dry-run drafts queued to be sent for real")
+    c.commit(); return n

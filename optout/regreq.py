@@ -63,7 +63,7 @@ def tick(limit=None):
                           JOIN inbox i ON i.outbox_id=o.id WHERE o.id IN (SELECT outbox_id FROM reg_requests) AND q.outbox_id=o.id AND (q.reply_kind IS NULL OR q.reply_kind<>i.kind)""").fetchall():
         if r["kind"] in M: c.execute("UPDATE reg_requests SET status=?, reply_kind=?, updated=? WHERE id=?", (M[r["kind"]], r["kind"], now(), r["id"])); out["replies"] += 1
     fu, es = int(config.get("FOLLOWUP_DAYS") or 20), int(config.get("ESCALATE_DAYS") or 45)
-    for r in c.execute("SELECT * FROM reg_requests WHERE status IN ('sent','dry_run','acknowledged') AND sent_at IS NOT NULL").fetchall():
+    for r in c.execute("SELECT * FROM reg_requests WHERE status IN ('sent','dry_run','acknowledged') AND sent_at IS NOT NULL AND (status<>'dry_run' OR ?)", (1 if remover.DRY else 0,)).fetchall():
         d = (datetime.datetime.now() - datetime.datetime.fromisoformat(r["sent_at"][:19])).days
         stage = 2 if d >= es and r["stage"] < 2 else 1 if fu <= d < es and r["stage"] < 1 else 0
         if not stage or r["broker"] not in B or r["person_id"] not in P: continue

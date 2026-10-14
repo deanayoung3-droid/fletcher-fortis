@@ -2,6 +2,10 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.2] - 2026-10-14
+### Fixed
+- **Going live sends the real requests.** When dry run is turned off, drafts written in dry run go back into the queue and are sent for real (consent and rate limits still apply). Before, they counted as sent, and the follow-up letters 20 and 45 days later would have gone out for requests the broker never received. Follow-ups now go out only after a real send.
+
 ## [1.3.1] - 2026-10-14
 ### Added
 - **California DROP, automated around the one human step.** California requires the person to verify residency personally (California Identity Gateway, CCPA regs § 7620), and DROP has no public consumer API, so that step and the final Submit stay with the person. Everything else is automated:

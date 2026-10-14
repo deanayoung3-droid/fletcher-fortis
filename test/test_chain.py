@@ -90,3 +90,11 @@ def test_proxy_only_on_request_and_coverage_page():
     rows, tot = chain.coverage()
     assert tot["brokers"] == len(rows) and 0 <= tot["pct"] <= 100 and tot["covered"] >= 1
     page = admin().get("/admin/heartbeat").text; assert 'id="coverage"' in page and "covered" in page
+
+def test_going_live_requeues_dry_run_drafts(monkeypatch):
+    sign("alex"); lid = listing("alex", "mockemail"); remover.approve(lid)
+    c = db.conn(); assert c.execute("SELECT status FROM listings WHERE id=?", (lid,)).fetchone()["status"] == "submitted"
+    n = lifecycle.requeue_dry(c); assert n >= 1
+    assert c.execute("SELECT status FROM listings WHERE id=?", (lid,)).fetchone()["status"] == "approved"
+    assert not c.execute("SELECT 1 FROM outbox WHERE state='dry_run'").fetchone()
+    assert lifecycle.requeue_dry(c) == 0   # idempotent
