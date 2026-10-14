@@ -33,6 +33,14 @@ def enqueue_shot(lid, kind="retake"):
         JOBS[k] = {"state": "queued", "why": kind, "queued_at": _ts()}
     _Q.put((("shot", lid), kind)); _ensure(); return True
 
+def enqueue_chain(lid):
+    """Queue the live removal chain for one listing. Same single worker and BROWSER lock as scans: never two Chromiums."""
+    k = f"chain:{lid}"
+    with _L:
+        if (JOBS.get(k) or {}).get("state") in ("queued", "running"): return False
+        JOBS[k] = {"state": "queued", "why": "chain", "queued_at": _ts()}
+    _Q.put((("chain", lid), "chain")); _ensure(); return True
+
 def _ensure():
     if _W[0] and _W[0].is_alive(): return
     _W[0] = threading.Thread(target=_loop, name="scan-worker", daemon=True); _W[0].start()
@@ -44,6 +52,14 @@ def _loop():
     import scanner
     while True:
         pid, why = _Q.get()
+        if isinstance(pid, tuple) and pid[0] == "chain":
+            k = f"chain:{pid[1]}"; _update(k, state="running", started=_ts())
+            try:
+                import chain
+                with BROWSER: chain.run_live(pid[1])
+                _update(k, state="done", finished=_ts())
+            except Exception as e: _update(k, state="error", error=type(e).__name__, finished=_ts())
+            continue
         if isinstance(pid, tuple) and pid[0] == "shot":
             k = f"shot:{pid[1]}"; _update(k, state="running", started=_ts())
             try:

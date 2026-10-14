@@ -98,3 +98,12 @@ def test_going_live_requeues_dry_run_drafts(monkeypatch):
     assert c.execute("SELECT status FROM listings WHERE id=?", (lid,)).fetchone()["status"] == "approved"
     assert not c.execute("SELECT 1 FROM outbox WHERE state='dry_run'").fetchone()
     assert lifecycle.requeue_dry(c) == 0   # idempotent
+
+def test_live_chain_is_queued_on_the_single_worker(monkeypatch):
+    import scanjobs, threading
+    sign("alex"); lid = listing("alex", "mockemail"); q = []
+    monkeypatch.setattr(scanjobs, "enqueue_chain", lambda l: q.append(l) or True)
+    started = []; monkeypatch.setattr(threading.Thread, "start", lambda self: started.append(self.name))
+    monkeypatch.setattr(remover, "DRY", False); monkeypatch.setattr(remover, "can_send", lambda p: (True, ""))
+    remover.approve(lid)
+    assert q == [lid] and not started   # no thread per listing: a burst can never launch many Chromiums

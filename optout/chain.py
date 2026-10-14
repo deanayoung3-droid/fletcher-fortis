@@ -222,7 +222,7 @@ def blind(c, p, l, site):
         if kind in ("email", "registry_email"): s = remover.send_request(c, p, site, target, l["id"]); st = "sent" if s in ("sent", "dry_run") else None; detail = target
         else: st = None; detail = "form"
         if st is None:
-            import threading; threading.Thread(target=run_live, args=(l["id"],), daemon=True).start(); st = "started"
+            import scanjobs; scanjobs.enqueue_chain(l["id"]); st = "started"
     if st:
         record(c, p["id"], site["id"], "blind", st if st != "started" else "sent", detail, l["id"])
         c.execute("UPDATE listings SET status='submitted', submitted_at=? WHERE id=?", (now(), l["id"]))

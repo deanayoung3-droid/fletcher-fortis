@@ -2,6 +2,10 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.3] - 2026-10-14
+### Fixed
+- **Live removals could start many browsers at once.** Each live removal chain ran in its own thread with its own Chromium, so turning dry run off with a backlog launched dozens of browsers and ran out of memory. Live chains now go through the single scan worker (one browser at a time, shared with scans), and at most `CHAIN_PER_HOUR` (default 10) are started per hourly run.
+
 ## [1.3.2] - 2026-10-14
 ### Fixed
 - **Going live sends the real requests.** When dry run is turned off, drafts written in dry run go back into the queue and are sent for real (consent and rate limits still apply). Before, they counted as sent, and the follow-up letters 20 and 45 days later would have gone out for requests the broker never received. Follow-ups now go out only after a real send.

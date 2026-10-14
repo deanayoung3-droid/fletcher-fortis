@@ -35,6 +35,7 @@ FIELDS = {
     "SCAN_MAX_QUERIES_PER_SITE": ("Max searches per site", "Scanning", "int", "6"),
     "AUTO_APPROVE": ("Auto-approve high-confidence matches", "Removals", "bool", "false"),
     "AUTO_APPROVE_MIN": ("Auto-approve minimum match score (0–100)", "Removals", "int", "85"),
+    "CHAIN_PER_HOUR": ("Live removal chains started per hour (one browser at a time)", "Removals", "int", "10"),
     "BLIND_REQUESTS": ("Email blocked sites even without a confirmed listing (blind requests)", "Removals", "bool", "false"),
     "REGISTRY_REQUESTS": ("Registry brokers (request-based): send deletion + opt-out requests to registered data brokers", "Removals", "bool", "true"),
     "REGISTRY_PER_HOUR": ("Registry requests per hour (pacing)", "Removals", "int", "25"),

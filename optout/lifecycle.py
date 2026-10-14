@@ -29,7 +29,7 @@ def tick():
         site = remover.SITE.get(l["site"], {}); p = c.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone()
         if site and p and remover.has_auth(p) and chain.blind(c, p, l, site): out["blind"] += 1
     if not remover.DRY:   # live: re-run the method chain for removals whose channels all failed last time (at most once a day)
-        for l in c.execute("SELECT id FROM listings WHERE status='approved' AND (submitted_at IS NULL OR submitted_at < datetime('now','localtime','-1 day'))").fetchall():
+        for l in c.execute("SELECT id FROM listings WHERE status='approved' AND (submitted_at IS NULL OR submitted_at < datetime('now','localtime','-1 day')) ORDER BY id LIMIT ?", (int(config.get("CHAIN_PER_HOUR") or 10),)).fetchall():
             remover.approve(l["id"]); out["chain_retried"] = out.get("chain_retried", 0) + 1
     import automation
     if automation.solver_on() and not remover.DRY:   # optional CAPTCHA solver: re-try forms that were waiting on a person

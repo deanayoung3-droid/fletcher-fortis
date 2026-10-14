@@ -227,7 +227,7 @@ def approve(listing_id):
             new = "needs_human"; st = (f"CAPTCHA form, complete it yourself: {target}" if captcha and not automation.solver_on() else "no automated opt-out method known for this site")
     else:   # live: the chain runs in the background and falls through on block, CAPTCHA or failure
         st = "removal chain started (form, then email, then registry contact)"; new = "approved"
-        threading.Thread(target=chain.run_live, args=(listing_id,), daemon=True).start()
+        import scanjobs; scanjobs.enqueue_chain(listing_id)   # one browser at a time, shared with scans
     c.execute("UPDATE listings SET status=?, submitted_at=? WHERE id=?", (new, now(), listing_id)); event(c, "approve", st, p["id"], listing_id)
     if new == "submitted":
         for o in _siblings(c, l, site):
