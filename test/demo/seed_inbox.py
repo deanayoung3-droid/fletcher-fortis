@@ -17,6 +17,7 @@ def out(pid, lid, site, d, stage=0, state="dry_run", h=9, channel="email", to=No
     body = (f"Hello,\n\nUnder the California Consumer Privacy Act I request that you delete all personal information you hold about {name}, "
             f"including the listing at https://www.{site}.com/find/{pid}, and confirm in writing.\n\n"
             + ("This is a follow-up: 30 days have passed without a response.\n\n" if stage else "") + f"Thank you,\n{name}")
+    if channel == "weekly": body = f"Hi {name.split()[0]},\n\nThis week: 3 listings removed, 2 requests in progress, 1 needs your attention.\n\nOpen the Inbox to see every request and reply.\n\nFletcher Fortis"
     cur = c.execute("INSERT INTO outbox(ts,person_id,to_addr,subject,body,state,listing_id,stage,channel) VALUES(?,?,?,?,?,?,?,?,?)",
                     (ts(d, h), pid, to or f"privacy@{site}.com", enc(subj), enc(body), state, lid, stage, channel)); return cur.lastrowid
 def inn(pid, lid, oid, site, d, kind, subj, body, h=14):
