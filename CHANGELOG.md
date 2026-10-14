@@ -2,6 +2,11 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.2.1] - 2026-10-14
+### Fixed
+- Heartbeat > Email DNS: Resend's newer setup (send.<domain> as a CNAME to send.forge.rmta.net) now counts as OK for SPF and the bounce MX, as does the classic amazonses setup.
+- DMARC `v=DMARC1; p=none;` without rua is accepted. Found values show cleanly (with the CNAME they came through), and the root SPF gets its own row instead of being mixed into the send SPF.
+
 ## [1.2.0] - 2026-10-13
 ### Added
 - **Inbox** page (sidebar): every email sent and received in one place: broker requests, follow-ups, escalations, broker replies, verification emails and weekly digests.

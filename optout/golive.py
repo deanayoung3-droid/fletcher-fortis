@@ -5,28 +5,52 @@ import remover, esign
 
 def domain(): return remover.FROM_ADDRESS.split("@")[-1].lower()
 
-def doh(name, rtype):
-    """Public DNS lookup via Cloudflare DoH. Returns list of record strings (or None on error)."""
+def doh_records(name, rtype):
+    """Public DNS lookup via Cloudflare DoH. Returns [(type_name, data)] including any CNAME hops (None on error)."""
     u = "https://cloudflare-dns.com/dns-query?" + urllib.parse.urlencode({"name": name, "type": rtype})
     try:
         with urllib.request.urlopen(urllib.request.Request(u, headers={"Accept": "application/dns-json"}), timeout=6) as r:  # nosec B310: fixed https host
-            return [a.get("data", "").strip('"').replace('" "', "") for a in json.load(r).get("Answer", []) or []]
+            ans = json.load(r).get("Answer", []) or []
     except Exception: return None
+    tn = {1: "A", 5: "CNAME", 15: "MX", 16: "TXT", 28: "AAAA"}
+    return [(tn.get(a.get("type"), str(a.get("type"))), a.get("data", "").strip().strip('"').replace('" "', "")) for a in ans]
+
+def doh(name, rtype):
+    """Record strings of the requested type only (CNAME hops dropped). None on error."""
+    rr = doh_records(name, rtype)
+    return None if rr is None else [d for t, d in rr if t == rtype]
+
+def cname_of(rr): return next((d.rstrip(".").lower() for t, d in rr or [] if t == "CNAME"), "")
+
+RESEND_HOSTS = ("rmta.net", "amazonses.com")
+def _resend_host(h): h = h.rstrip(".").lower(); return any(h == x or h.endswith("." + x) for x in RESEND_HOSTS)
+def _mx_host(v): return v.split()[-1].rstrip(".").lower() if v.strip() else ""
+def bounce_mx_ok(mxs, cname=""):
+    for v in mxs:
+        h = _mx_host(v)
+        if (h.startswith("feedback-smtp.") and h.endswith(".amazonses.com")) or (h.startswith("feedback.") and h.endswith(".rmta.net")): return True
+    return bool(cname) and cname.endswith(".rmta.net") and "forge" in cname
+def spf_ok(txts): return any(x.lower().startswith("v=spf1") for x in txts)
+def dmarc_ok(txts): return any(x.replace(" ", "").upper().startswith("V=DMARC1;") or x.strip().upper() == "V=DMARC1" for x in txts)
+def _via(cname): return f" (via CNAME {cname})" if cname else ""
 
 def dns_checks():
     d = domain(); out = []
     def add(key, label, ok, detail, fix): out.append({"key": key, "label": label, "ok": ok, "detail": detail, "fix": fix})
-    spf = doh(f"send.{d}", "TXT") or []; spf_root = doh(d, "TXT") or []
-    add("spf", f"SPF for Resend (send.{d})", any("amazonses.com" in x or "resend" in x for x in spf + spf_root),
-        "; ".join(spf + [x for x in spf_root if x.startswith("v=spf1")])[:160] or "no SPF record found", "Resend > Domains > add the TXT record for send." + d)
-    dk = doh(f"resend._domainkey.{d}", "TXT")
-    add("dkim", f"DKIM (resend._domainkey.{d})", bool(dk and any("p=" in x for x in dk)), "found" if dk else "missing", "Resend > Domains > copy the DKIM TXT record into Cloudflare DNS")
-    mxs = doh(f"send.{d}", "MX") or []
-    add("mx_send", f"Bounce MX (send.{d})", any("amazonses" in x for x in mxs), ", ".join(mxs) or "missing", "Resend > Domains > add the MX record for send." + d)
+    rr = doh_records(f"send.{d}", "TXT") or []; cn = cname_of(rr); spf = [x for t, x in rr if t == "TXT" and x.lower().startswith("v=spf1")]
+    add("spf", f"SPF for Resend (send.{d})", spf_ok(spf), ("; ".join(spf)[:160] + _via(cn)) if spf else (f"CNAME {cn}, but no SPF behind it" if cn else "no SPF record found"),
+        "Resend > Domains > add the SPF record (TXT, or the CNAME in Resend's newer setup) for send." + d)
+    root = [x for x in (doh(d, "TXT") or []) if x.lower().startswith("v=spf1")]
+    if root: add("spf_root", f"Root SPF ({d})", True, "; ".join(root)[:160], "")
+    dk = doh_records(f"resend._domainkey.{d}", "TXT") or []; dkc = cname_of(dk)
+    add("dkim", f"DKIM (resend._domainkey.{d})", any(t == "TXT" and "p=" in x for t, x in dk), ("found" + _via(dkc)) if dk else "missing", "Resend > Domains > copy the DKIM record into Cloudflare DNS")
+    mrr = doh_records(f"send.{d}", "MX") or []; mcn = cname_of(mrr) or cn; mxs = [x for t, x in mrr if t == "MX"]
+    add("mx_send", f"Bounce MX (send.{d})", bounce_mx_ok(mxs, mcn), (", ".join(mxs) + _via(mcn)) if mxs else (f"CNAME {mcn}" if mcn else "missing"),
+        "Resend > Domains > add the MX record (or the send CNAME) for send." + d)
     mx = doh(d, "MX") or []
     add("mx_in", f"Inbound MX ({d})", any("mx.cloudflare.net" in x for x in mx), ", ".join(mx) or "missing", "Cloudflare > Email > Email Routing > Enable (adds route1/2/3.mx.cloudflare.net)")
-    dm = doh(f"_dmarc.{d}", "TXT") or []
-    add("dmarc", f"DMARC (_dmarc.{d})", any(x.startswith("v=DMARC1") for x in dm), "; ".join(dm)[:120] or "missing", "Add TXT _dmarc: v=DMARC1; p=none; rua=mailto:dmarc@" + d)
+    dm = [x for x in (doh(f"_dmarc.{d}", "TXT") or []) if x.upper().startswith("V=DMARC1")]
+    add("dmarc", f"DMARC (_dmarc.{d})", dmarc_ok(dm), "; ".join(dm)[:120] or "missing", "Add TXT _dmarc: v=DMARC1; p=none; (rua=mailto:dmarc@" + d + " is optional)")
     return out
 
 def checklist(c):
