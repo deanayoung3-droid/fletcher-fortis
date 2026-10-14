@@ -70,3 +70,5 @@ document.addEventListener('change',e=>{const f=e.target.closest('[data-submit-on
   bars.forEach((b,i)=>{b.style.backgroundColor=v&&i<Math.max(s,1)?C[s]:''});
   lab.textContent=!v?'At least 12 characters. A short sentence works well.':(s?L[s]+(s<3?'. Longer is stronger.':''):why);lab.style.color=v?C[s]:''}
  pw.addEventListener('input',upd);un&&un.addEventListener('input',upd);upd()})();
+
+document.addEventListener('change',e=>{const f=e.target.closest('[data-autosubmit]');if(f&&f.form)f.form.submit()});

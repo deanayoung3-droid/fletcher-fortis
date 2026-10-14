@@ -2,6 +2,14 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.2.0] - 2026-10-13
+### Added
+- **Inbox** page (sidebar): every email sent and received in one place: broker requests, follow-ups, escalations, broker replies, verification emails and weekly digests.
+  Tabs for All, Needs you, Pending, In progress and Completed; filters for person, broker and direction; search. Dry-run emails show as "Draft (dry run)".
+- Thread view with the full message, the linked listing or broker request, a timeline of related mail and events, and a "Mark handled" action.
+- Members see only their own mail. Junk and phishing stay on Calls & mail.
+- Fly.io and VPS (cloud-init) deploy files with a host comparison in docs/CLOUD.md.
+
 ## [1.1.1] - 2026-10-13
 
 ### Fixed

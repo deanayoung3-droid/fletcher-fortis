@@ -33,6 +33,7 @@ Most of that work is mechanical: search, match, send the right legal request, wa
 - Re-scans to confirm a listing is gone before marking it Removed.
 - Re-checks every week and re-files automatically if a listing comes back.
 - Sends each member a short weekly email; the admin gets the family view.
+- Inbox: every email sent and received (requests, follow-ups, broker replies, verification emails, digests) in one list with status tabs, filters, search and a thread view per request.
 
 **Needs you**
 - Steps a person has to do are collected on one page, grouped by person, each with the reason in plain language and buttons to open the site, mark it done, or snooze it.

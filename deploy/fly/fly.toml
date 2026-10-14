@@ -11,7 +11,7 @@ swap_size_mb = 1024             # Chromium headroom on a 1 GB Machine
   dockerfile = "Dockerfile"
 
 [env]
-  PUBLIC_URL = "https://app.fletcherfortis.com"
+  PUBLIC_URL = "https://privacy.fletcherfortis.com"
   FROM_ADDRESS = "privacy@fletcherfortis.com"
   MAIL_DOMAIN = "fletcherfortis.com"
   DRY_RUN = "true"              # nothing is sent until you switch it off in Heartbeat (type LIVE)

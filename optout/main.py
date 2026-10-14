@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding
+import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox
 from db import now, event
 from crypto import enc
 import logsafe; logsafe.install()
@@ -708,6 +708,45 @@ def weekly_test(r: Request, _=Depends(csrf)):
 def heartbeat_run(r: Request, _=Depends(csrf)):
     auth.require_admin(r); res = lifecycle.tick(); event(C, "lifecycle_run", json.dumps(res))
     return RedirectResponse("/admin/heartbeat?msg=" + quote("Automation pass done: " + ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in res.items())), 303)
+
+
+# ---------- inbox: every email sent and received ----------
+def _mail_scope(r):
+    u = r.state.user; return None if u["role"] == "admin" else {u["person_id"]}
+
+@app.get("/inbox", response_class=HTMLResponse)
+def inbox_page(r: Request, tab: str = "all", person: str = "", broker: str = "", dir: str = "", q: str = ""):
+    tab = tab if tab in dict(mailbox.BUCKETS) else "all"; dir = dir if dir in ("in", "out") else ""
+    items = mailbox.messages(C, _mail_scope(r)); base = mailbox.filtered(items, "all", person, broker, dir, q)
+    rows = mailbox.filtered(base, tab)
+    brokers = sorted({(x["site"] or x["broker"], x["broker"]) for x in items}, key=lambda b: b[1].lower())
+    people = sorted({(x["person_id"], x["person"]) for x in items if x["person_id"]}, key=lambda p: p[1] or "")
+    return T.TemplateResponse(r, "inbox.html", {"rows": rows[:500], "total": len(rows), "counts": mailbox.counts(base), "tab": tab, "f": {"person": person, "broker": broker, "dir": dir, "q": q[:100]},
+        "buckets": mailbox.BUCKETS, "brokers": brokers, "fpeople": people})
+
+def _mail_item(r, direction, mid):
+    if direction not in ("in", "out"): raise HTTPException(404)
+    row, item = mailbox.get(C, direction, mid)
+    if not item: raise HTTPException(404)
+    scope = _mail_scope(r)
+    if scope is not None and item["person_id"] not in scope: raise HTTPException(404)
+    return row, item
+
+@app.get("/inbox/{direction}/{mid}", response_class=HTMLResponse)
+def inbox_thread(r: Request, direction: str, mid: int):
+    row, item = _mail_item(r, direction, mid)
+    req = None
+    if item["listing_id"]: req = {"href": f"/listing/{item['listing_id']}", "label": "Open listing", "status": (C.execute("SELECT status FROM listings WHERE id=?", (item["listing_id"],)).fetchone() or {}).get("status")}
+    elif item["reg_id"]:
+        q_ = C.execute("SELECT * FROM reg_requests WHERE id=?", (item["reg_id"],)).fetchone(); req = {"href": "/coverage", "label": "Open broker request", "status": q_["status"] if q_ else None}
+    return T.TemplateResponse(r, "inbox_thread.html", {"m": item, "row": row, "body": row["body"] or "", "links": mailbox.links(row) if direction == "in" else [],
+        "timeline": mailbox.thread(C, item), "req": req})
+
+@app.post("/inbox/{direction}/{mid}/handled")
+def inbox_handled(r: Request, direction: str, mid: int, undo: str = Form(""), _=Depends(csrf)):
+    _, item = _mail_item(r, direction, mid)
+    mailbox.mark(C, item["key"], handled=not undo, user=r.state.user["username"]); event(C, "mail_unhandled" if undo else "mail_handled", item["key"], item["person_id"])
+    return RedirectResponse(f"/inbox/{direction}/{mid}", 303)
 
 # ---------- first-run setup wizard ----------
 # Step 1 (admin account) is reachable only with the one-time setup token from the container log; steps 2-7 need the admin session.

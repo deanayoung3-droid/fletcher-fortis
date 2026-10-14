@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, pill, label with context %}{% block title %}Inbox{% endblock %}{% block body %}
+<div class="flex flex-wrap items-end gap-4 mb-5 px-1"><div><h1 class="text-[36px] leading-[1.05] font-medium tracking-[-0.045em]">Inbox</h1>
+ <p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-1.5">Every email sent and received: broker requests, follow-ups, replies, verification links and digests.{% if DRY %} Dry-run mode: outgoing mail is drafted, not sent.{% endif %}</p></div></div>
+{% set qs = ('&person=' ~ (f.person|urlencode) if f.person else '') ~ ('&broker=' ~ (f.broker|urlencode) if f.broker else '') ~ ('&dir=' ~ f.dir if f.dir else '') ~ ('&q=' ~ (f.q|urlencode) if f.q else '') %}
+<div class="flex flex-wrap items-center gap-1 mb-3 px-1" role="tablist">
+ {% for k, t in buckets %}<a role="tab" aria-selected="{{'true' if tab==k else 'false'}}" href="/inbox?tab={{k}}{{qs}}" class="h-9 inline-flex items-center gap-2 px-3.5 rounded-full text-[13px] font-medium {{'bg-ink text-white dark:bg-white dark:text-black' if tab==k else 'text-stone-600 dark:text-neutral-300 hover:bg-stone-100 dark:hover:bg-white/[.06]'}}">{{t}}<span class="font-mono text-[11px] {{'opacity-70' if tab==k else 'text-stone-400'}}">{{counts[k]}}</span></a>{% endfor %}
+</div>
+<form method="get" action="/inbox" class="tile !p-3 mb-3 flex flex-wrap items-center gap-2"><input type="hidden" name="tab" value="{{tab}}">
+ <label class="flex items-center gap-2 flex-1 min-w-[220px] input !h-9 text-stone-400">{{icon('search')}}<input name="q" value="{{f.q}}" placeholder="Search subject, broker, person, address" class="bg-transparent outline-none w-full text-ink dark:text-white"></label>
+ <select name="person" data-autosubmit class="input !h-9 !w-auto"><option value="">All people</option>{% for id, n in fpeople %}<option value="{{id}}" {{'selected' if f.person==id}}>{{n}}</option>{% endfor %}</select>
+ <select name="broker" data-autosubmit class="input !h-9 !w-auto max-w-[220px]"><option value="">All brokers</option>{% for v, n in brokers %}<option value="{{v}}" {{'selected' if f.broker==v}}>{{n}}</option>{% endfor %}</select>
+ <select name="dir" data-autosubmit class="input !h-9 !w-auto"><option value="">Sent &amp; received</option><option value="out" {{'selected' if f.dir=='out'}}>Sent</option><option value="in" {{'selected' if f.dir=='in'}}>Received</option></select>
+ <button class="btn !h-9">Filter</button>{% if qs %}<a href="/inbox?tab={{tab}}" class="btn !h-9">{{icon('x')}}Clear</a>{% endif %}
+</form>
+<section class="tile"><div class="card-w">
+ {% for m in rows %}
+ <a href="/inbox/{{m.dir}}/{{m.id}}" class="flex items-center gap-3 px-4 py-3 border-b last:border-0 border-stone-100 dark:border-white/[.07] hover:bg-stone-50 dark:hover:bg-white/[.03]">
+  <span title="{{'Sent' if m.dir=='out' else 'Received'}}" class="w-8 h-8 rounded-full grid place-items-center shrink-0 {{'bg-stone-100 text-stone-500 dark:bg-white/[.06]' if m.dir=='out' else 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'}}">{{icon(m.dir,'w-3.5 h-3.5')}}</span>
+  <div class="w-[180px] shrink-0 min-w-0"><div class="text-[13.5px] font-medium truncate">{{m.broker}}</div><div class="text-[12px] text-stone-500 truncate">{{m.person or '—'}}</div></div>
+  <div class="min-w-0 flex-1"><div class="text-[13.5px] truncate">{{m.subject}}</div><div class="text-[12px] text-stone-500 truncate">{{m.stage}} · {{'to' if m.dir=='out' else 'from'}} {{m.addr}}</div></div>
+  {{pill(m.label, m.color)}}
+  <span class="font-mono text-[11.5px] text-stone-500 w-[92px] text-right shrink-0">{{m.ts[:10]}}<br><span class="text-stone-400">{{m.ts[11:16]}}</span></span>
+ </a>
+ {% else %}<div class="py-12 px-6 text-center"><span class="mx-auto w-11 h-11 rounded-2xl bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-400">{{icon('mail','w-5 h-5')}}</span><div class="text-[14px] font-semibold mt-3">{{'No messages match' if qs or tab!='all' else 'No mail yet'}}</div><div class="text-[12.5px] text-stone-500 mt-1 max-w-sm mx-auto">Removal requests, follow-ups, broker replies and weekly digests will all show up here.</div></div>{% endfor %}
+</div>{% if total > rows|length %}<div class="text-[12px] text-stone-500 px-4 py-3">Showing the newest {{rows|length}} of {{total}}. Narrow with filters or search.</div>{% endif %}</section>
+{% endblock %}
