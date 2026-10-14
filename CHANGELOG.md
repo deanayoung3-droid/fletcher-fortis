@@ -2,6 +2,11 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.1.1] - 2026-10-13
+
+### Fixed
+- Docker image build: the Cloudflare Email Worker script shown in the setup wizard was excluded by `.dockerignore`, so the 1.1.0 image was never published. 1.1.1 is the first image with the setup wizard.
+
 ## [1.1.0] - 2026-10-13
 
 ### Added
