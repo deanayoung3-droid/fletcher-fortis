@@ -2,6 +2,14 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.6] - 2026-10-14
+### Fixed
+- **Inbox and Family & accounts disagreed on how many emails were sent.** The Inbox listed every outgoing record, and dry-run drafts that going live had superseded (`dry_run_superseded`) and registry web-form records (`needs_human`) were labelled "Sent · awaiting reply", so the page looked like several hundred emails had gone out. Family & accounts "Sent" counted listings in the submitted state (removals filed), not emails, so it showed far fewer and left out registry requests and invites.
+- Both pages (and the Heartbeat delivery card) now use one definition, `mailbox.mail_counts` / `mailbox.out_class`: **Sent** is a real delivery only; **Drafted (dry run)** (including superseded drafts), **Not sent** (errors and holds), **Queued** and **Web form for a person** are kept apart. Every message is counted once under its person, so the per-person numbers on Family & accounts add up to the Inbox total.
+### Changed
+- Inbox shows a counts strip (Sent, Drafted (dry run), Not sent, Received) that follows the person filter and member scope. Superseded drafts show as "Draft (dry run, not sent)" and web-form records as "Web form for a person".
+- Family & accounts: each person shows "Emails sent" and "Drafted (dry run)" with a link to their Inbox, the page shows the family total, and the listing tile formerly called "Sent" is now "Removals filed".
+
 ## [1.3.5] - 2026-10-14
 ### Fixed
 - **Resend rate limit (429).** All email goes through one paced sender (at most about 2 per second, `SEND_INTERVAL_MS`, default 500), so hourly registry and broker batches no longer burst past Resend's 10 requests per second. 429 and 5xx answers (and network errors) are retried with backoff, honouring `Retry-After`, using the same idempotency key so a retry can never send twice. Registry requests that still failed for a temporary reason go back in the queue on the next hourly run (up to 5 tries); permanent errors such as 403 stay failed. Requests that already failed with 429 are re-queued automatically on upgrade.

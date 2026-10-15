@@ -37,11 +37,15 @@ def status(c):
     ready = remover.provider_ready()
     add("sending", "Sending", "warn" if remover.DRY else ("ok" if ready else "bad"), "dry run (nothing leaves)" if remover.DRY else ("live" if ready else "live but not configured"), f"{remover.FROM_NAME} <{remover.FROM_ADDRESS}>", "zap")
     wk = (datetime.datetime.now() - datetime.timedelta(days=7)).isoformat(timespec="seconds")
-    o = {r["s"]: r["n"] for r in c.execute("SELECT CASE WHEN state='sent' THEN 'sent' WHEN state='dry_run' THEN 'dry' WHEN state LIKE 'blocked%' THEN 'blocked' WHEN state='queued' THEN 'queued' ELSE 'failed' END s, COUNT(*) n FROM outbox WHERE ts>? GROUP BY s", (wk,))}
-    lf = one("SELECT MAX(ts) t FROM outbox WHERE ts>? AND state NOT IN ('sent','dry_run','queued') AND state NOT LIKE 'blocked%'", (wk,))["t"]
+    import mailbox   # same definition of sent / drafted / not sent as Inbox and Family & accounts
+    o = {}; lf = None
+    for r in c.execute("SELECT ts, state FROM outbox WHERE ts>?", (wk,)):
+        k = mailbox.out_class(r["state"]); k = "blocked" if (r["state"] or "").startswith("blocked") else {"drafted": "dry", "not_sent": "failed"}.get(k, k)
+        o[k] = o.get(k, 0) + 1
+        if k == "failed" and (lf is None or r["ts"] > lf): lf = r["ts"]
     ls = one("SELECT MAX(ts) t FROM outbox WHERE state='sent'")["t"]
     fresh = o.get("failed") and not resolved(lf, ls)   # only a failure newer than the last delivery makes this red
-    add("delivery", "Email delivery (7 days)", "bad" if fresh else "ok", f"{o.get('sent', 0)} sent · {o.get('dry', 0)} dry run",
+    add("delivery", "Email delivery (7 days)", "bad" if fresh else "ok", f"{o.get('sent', 0)} sent · {o.get('dry', 0)} drafted (dry run)",
         (f"{o.get('failed', 0)} failed" + ("" if fresh or not o.get("failed") else f" earlier, resolved (last delivered {_ago(ls)})")) + f" · {o.get('blocked', 0)} held by safety gates · {o.get('queued', 0)} queued", "mail")
     ib = one("SELECT ts FROM inbox ORDER BY id DESC LIMIT 1"); sec = len(config.get("INBOUND_SECRET") or "") >= 32
     add("inbound", "Inbound mail", "ok" if sec and ib else "warn", ("receiving" if ib else "waiting for first message") if sec else "not configured", f"last message {_ago(ib['ts']) if ib else 'never'} · link auto-click {'on' if config.get('INBOUND_AUTOCLICK') == 'true' else 'off'}", "mail")

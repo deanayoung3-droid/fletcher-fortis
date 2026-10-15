@@ -218,7 +218,8 @@ def family(r: Request, inv: str = "", who: str = "", err: str = "", sent: str = 
     users = {u["person_id"]: u for u in db.conn().execute("SELECT * FROM users").fetchall()}
     people = C.execute("SELECT * FROM people ORDER BY COALESCE((SELECT 1 FROM users WHERE users.person_id=people.id AND users.role='admin'),0) DESC, rowid").fetchall()
     link = f"{(config.get('PUBLIC_URL') or str(r.base_url)).rstrip('/')}/invite/{inv}" if inv and re.fullmatch(r"[\w-]{20,64}", inv) else None
-    return T.TemplateResponse(r, "family.html", {"people": people, "users": users, "stats": {p["id"]: stats(p["id"]) for p in people}, "invite_link": link, "who": who, "err": err[:200], "generated": None, "sent": sent[:120], "deleted": bool(deleted)})
+    mc = mailbox.mail_counts(C)
+    return T.TemplateResponse(r, "family.html", {"people": people, "users": users, "stats": {p["id"]: stats(p["id"]) for p in people}, "mc": mc, "invite_link": link, "who": who, "err": err[:200], "generated": None, "sent": sent[:120], "deleted": bool(deleted)})
 
 def _fam_err(pid, msg): return RedirectResponse(f"/family?who={pid}&err={quote(msg)}", 303)
 
@@ -855,7 +856,8 @@ def inbox_page(r: Request, tab: str = "all", person: str = "", broker: str = "",
     rows = mailbox.filtered(base, tab)
     brokers = sorted({(x["site"] or x["broker"], x["broker"]) for x in items}, key=lambda b: b[1].lower())
     people = sorted({(x["person_id"], x["person"]) for x in items if x["person_id"]}, key=lambda p: p[1] or "")
-    return T.TemplateResponse(r, "inbox.html", {"rows": rows[:500], "total": len(rows), "counts": mailbox.counts(base), "tab": tab, "f": {"person": person, "broker": broker, "dir": dir, "q": q[:100]},
+    scope = _mail_scope(r); sel = (({person} & scope) if scope is not None else {person}) if person else scope
+    return T.TemplateResponse(r, "inbox.html", {"rows": rows[:500], "total": len(rows), "counts": mailbox.counts(base), "mc": mailbox.mail_counts(C, sel)["total"], "OUTC": mailbox.OUT_CLASSES, "tab": tab, "f": {"person": person, "broker": broker, "dir": dir, "q": q[:100]},
         "buckets": mailbox.BUCKETS, "brokers": brokers, "fpeople": people})
 
 def _mail_item(r, direction, mid):

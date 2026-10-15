@@ -36,11 +36,40 @@ def _reg_by_outbox(c):
 def _broker_from_addr(addr):
     m = re.search(r"@([\w.-]+)", addr or ""); return m.group(1).removeprefix("mail.").removeprefix("privacy.") if m else ""
 
+# One definition of "sent", shared by Inbox, Family & accounts and anything else that counts mail.
+#   sent     : delivered to the provider for real (outbox.state == 'sent')
+#   drafted  : written in dry run, never left the server ('dry_run', and 'dry_run_superseded' once going live re-queued it)
+#   not_sent : failed or held (error / blocked / not sent)
+#   queued   : waiting to go out
+#   manual   : a web form recorded for a person to submit (not an email)
+OUT_CLASSES = (("sent", "Sent"), ("drafted", "Drafted (dry run)"), ("not_sent", "Not sent"), ("queued", "Queued"), ("manual", "Web form for a person"))
+def out_class(state):
+    st = state or ""
+    if st == "sent": return "sent"
+    if st.startswith("dry_run"): return "drafted"
+    if st == "queued": return "queued"
+    if st.startswith(("blocked", "error", "not sent")): return "not_sent"
+    if st in ("needs_human",): return "manual"
+    return "not_sent"   # unknown states are never counted as delivered
+
+def mail_counts(c, person_ids=None):
+    """{"total": {...}, "people": {pid: {...}}} with keys sent/drafted/not_sent/queued/manual/received. Every outbox and (non-junk)
+    inbox row is counted exactly once, under its person_id (None for mail not linked to a person), so per-person counts add up to the total."""
+    keys = [k for k, _ in OUT_CLASSES] + ["received"]
+    tot = dict.fromkeys(keys, 0); per = {}
+    def add(pid, k):
+        if person_ids is not None and pid not in person_ids: return
+        tot[k] += 1; per.setdefault(pid, dict.fromkeys(keys, 0))[k] += 1
+    for r in c.execute("SELECT person_id, state FROM outbox"): add(r["person_id"], out_class(r["state"]))
+    for r in c.execute("SELECT person_id FROM inbox WHERE COALESCE(kind,'') NOT IN ('junk','phishing')"): add(r["person_id"], "received")
+    return {"total": tot, "people": per}
+
 def _out_status(o, lst, reg, handled):
-    st = (o["state"] or "")
-    if o["state"] == "dry_run": return ("Draft (dry run)", "gray", "done" if handled else "pending")
-    if st == "queued": return ("Queued", "amber", "pending")
-    if st.startswith(("blocked", "error", "not sent")): return ("Not sent", "red", "done" if handled else "needs")
+    st = (o["state"] or ""); cls = out_class(st)
+    if cls == "drafted": return ("Draft (dry run, not sent)", "gray", "done" if handled or st != "dry_run" else "pending")
+    if cls == "queued": return ("Queued", "amber", "pending")
+    if cls == "manual": return ("Web form for a person", "purple", "done" if handled else "needs")
+    if cls == "not_sent": return ("Not sent", "red", "done" if handled else "needs")
     if handled: return ("Handled", "green", "done")
     if (o["channel"] or "") in DIGEST: return ("Sent", "green", "done")
     if lst:

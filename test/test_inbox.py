@@ -47,7 +47,7 @@ def member(admin):
 def test_unified_list_and_statuses(data):
     items = {x["key"]: x for x in mailbox.messages(db.conn())}
     assert f"in-{data['j']}" not in items                                   # junk excluded
-    assert items[f"out-{data['o1']}"]["label"] == "Draft (dry run)" and items[f"out-{data['o1']}"]["bucket"] == "pending"
+    assert items[f"out-{data['o1']}"]["label"] == "Draft (dry run, not sent)" and items[f"out-{data['o1']}"]["bucket"] == "pending"
     assert items[f"out-{data['f1']}"]["stage"] == "Follow-up"
     assert items[f"in-{data['i1']}"]["bucket"] == "progress" and items[f"in-{data['i2']}"]["bucket"] == "done"
     assert items[f"out-{data['o2']}"]["bucket"] == "done"                   # listing removed
@@ -57,7 +57,7 @@ def test_unified_list_and_statuses(data):
 
 def test_page_tabs_filters_search(admin, data):
     r = admin.get("/inbox"); assert r.status_code == 200
-    for s in ("Delete request A", "Removed!", "Draft (dry run)", "Weekly digest", 'href="/inbox"'): assert s in r.text
+    for s in ("Delete request A", "Removed!", "Draft (dry run, not sent)", "Weekly digest", 'href="/inbox"'): assert s in r.text
     assert "Win a prize" not in r.text
     r = admin.get("/inbox?tab=done"); assert "Removed!" in r.text and "Delete request A" not in r.text
     r = admin.get("/inbox?tab=needs"); assert "We need more info" in r.text and "Blocked one" in r.text and "Removed!" not in r.text
@@ -85,3 +85,31 @@ def test_member_scoped(member, data):
 
 def test_logged_out_redirect():
     assert client().get("/inbox").status_code == 303
+
+def test_one_definition_of_sent_and_family_adds_up(admin, data):
+    """v1.3.6: superseded dry-run drafts and web-form records are never 'Sent'; Inbox and Family & accounts use mailbox.mail_counts,
+    and per-person counts add up to the Inbox total."""
+    sup = out("alex", "Old draft", state="dry_run_superseded"); form = out("alex", "Registry web form", state="needs_human", channel="form")
+    rq = out("alex", "Rate limited", state="error: Resend 429: Too many requests", channel="registry_email")
+    items = {x["key"]: x for x in mailbox.messages(db.conn())}
+    assert items[f"out-{sup}"]["label"] == "Draft (dry run, not sent)" and items[f"out-{form}"]["label"] == "Web form for a person"
+    assert items[f"out-{rq}"]["label"] == "Not sent"
+    mc = mailbox.mail_counts(db.conn()); c = db.conn()
+    real = c.execute("SELECT COUNT(*) FROM outbox WHERE state='sent'").fetchone()[0]
+    assert mc["total"]["sent"] == real == sum(v["sent"] for v in mc["people"].values())
+    assert mc["total"]["drafted"] == c.execute("SELECT COUNT(*) FROM outbox WHERE state LIKE 'dry_run%'").fetchone()[0]
+    assert sum(sum(v.values()) for v in mc["people"].values()) == sum(mc["total"].values())
+    assert sum(mc["total"][k] for k in ("sent", "drafted", "not_sent", "queued", "manual")) == c.execute("SELECT COUNT(*) FROM outbox").fetchone()[0]
+    r = admin.get("/inbox").text
+    assert re.search(r'data-mc="sent">%d<' % real, r) and re.search(r'data-mc="drafted">%d<' % mc["total"]["drafted"], r)
+    f = admin.get("/family").text
+    assert re.search(r'data-total-sent>%d<' % real, f) and "Removals filed" in f
+    per = [int(x) for x in re.findall(r'data-sent>(\d+)<', f)]
+    assert sum(per) + (mc["people"].get(None, {}).get("sent", 0)) == real
+    r = admin.get("/inbox?person=sam").text; assert re.search(r'data-mc="sent">%d<' % mc["people"]["sam"]["sent"], r)
+
+def test_member_counts_scoped(member, data):
+    mc = mailbox.mail_counts(db.conn(), {"sam"})["total"]
+    r = member.get("/inbox?person=alex").text   # a member cannot widen the counts to someone else
+    assert re.search(r'data-mc="sent">0<', r)
+    r = member.get("/inbox").text; assert re.search(r'data-mc="sent">%d<' % mc["sent"], r)
