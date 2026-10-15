@@ -2,6 +2,16 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.7] - 2026-10-15
+
+### Fixed
+- **"Unverified" on every person.** The person hero showed "Unverified" whenever some sites blocked the automated scan, even with removals in progress. It now reads Exposed / Removing / Partly checked / Protected, and the detail line explains removals in progress and sites that could not be scanned. It has nothing to do with consent or identity checks.
+- **Superseded dry-run drafts.** Drafts already replaced by a real send, by the live removal chain, or by a registry request that is queued, sent or covered by CA DROP are now archived (`dry_run_archived`) and hidden from the Inbox, with a "Show archived drafts" toggle. People without signed consent stay locked.
+- **Registry requests stuck after a daily-quota error.** Resend "daily email sending quota" failures are requeued without spending a retry, and the batch pauses (`registry_paused`) instead of burning the queue. Old failed attempts whose request is back in the queue show as "Not sent · retried".
+- **One person starving the registry queue.** Registry sends now go round-robin across people instead of oldest-first.
+- **Privacy score never recovered.** New score model: a re-scan removal counts fully, a broker confirmation email counts mostly, a sent request counts a little, and "no records found" counts as clear. The person page gets a "Why this score" breakdown with the change since the last snapshot, and an exposures-over-time chart with a "Broker confirmed" series (also on the home chart). Daily score snapshots are recorded.
+- **Inbound replies not linked or classified.** Replies from privacy platforms that drop the plus-address tag are matched to the person and broker from the quoted letter. New `not_found` class ("no records found"), wider removed/ack patterns, and a one-time re-link and re-classify of stored replies. Broker replies now update registry request status (no downgrades).
+
 ## [1.3.6] - 2026-10-14
 ### Fixed
 - **Inbox and Family & accounts disagreed on how many emails were sent.** The Inbox listed every outgoing record, and dry-run drafts that going live had superseded (`dry_run_superseded`) and registry web-form records (`needs_human`) were labelled "Sent · awaiting reply", so the page looked like several hundred emails had gone out. Family & accounts "Sent" counted listings in the submitted state (removals filed), not emails, so it showed far fewer and left out registry requests and invites.

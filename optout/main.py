@@ -269,9 +269,8 @@ def _score(pid=None):
         if not ps: return {"value": 100, "grade": "A", "open": 0, "removed": 0}
         v = round(sum(x["value"] for x in ps) / len(ps))
         return {"value": v, "grade": "ABCDEFG"[min(6, (100 - v) // 13)], "open": sum(x["open"] for x in ps), "removed": sum(x["removed"] for x in ps)}
-    s = stats(pid); n = sum(s.get(k, 0) for k in ("candidate", "blocked_auth", "needs_human")); prog = s.get("submitted", 0) + s.get("pending", 0) + s.get("approved", 0)
-    v = max(0, min(100, 100 - 7 * n - 3 * prog - 15 * s.get("reappeared", 0) - min(20, s.get("manual_check", 0))))  # unchecked sites are unknown risk
-    return {"value": v, "grade": "ABCDEFG"[min(6, (100 - v) // 13)], "open": n + prog + s.get("reappeared", 0), "removed": s.get("confirmed_removed", 0)}
+    import score as _sc   # weighting and breakdown live in score.py (re-scan confirmations count fully, broker emails mostly, sent requests a little)
+    d = _sc.compute(C, pid); d["prev"], d["prev_day"] = _sc.change(C, pid, d["value"]); return d
 def _months(pid=None, n=8):
     """Exposures found per month (lollipop chart)."""
     t = datetime.date.today().replace(day=1); ms = []
@@ -293,7 +292,12 @@ def _weeks(pid=None, n=12):
             k = (d - ws[0]).days // 7
             if 0 <= k < n: out[k] += 1
         return out
-    return [w.strftime("%b %-d") for w in ws], bucket("first_seen", "AND status NOT IN ('not_me','manual_check','checked_clear')"), bucket("confirmed_at")
+    conf = [0] * n   # broker confirmations by email (removed / no records found), people-search listings and registry brokers alike
+    for r in C.execute("SELECT substr(ts,1,10) d FROM inbox WHERE kind IN ('removed','not_found')" + (" AND person_id=?" if pid else " AND person_id IS NOT NULL"), (pid,) if pid else ()):  # nosec B608
+        try: k = (datetime.date.fromisoformat(r["d"]) - ws[0]).days // 7
+        except Exception: continue
+        if 0 <= k < n: conf[k] += 1
+    return [w.strftime("%b %-d") for w in ws], bucket("first_seen", "AND status NOT IN ('not_me','manual_check','checked_clear')"), bucket("confirmed_at"), conf
 T.env.globals.update(chart=charts.chart, weeks=_weeks)
 T.env.globals.update(score=_score, months=_months, OPEN=OPEN, today=lambda: datetime.date.today())
 T.env.globals.update(fam_list=_people, hq=_queue, heat=_heat, domain=_domain, pstats=lambda pid=None: stats(pid))
@@ -850,14 +854,14 @@ def _mail_scope(r):
     u = r.state.user; return None if u["role"] == "admin" else {u["person_id"]}
 
 @app.get("/inbox", response_class=HTMLResponse)
-def inbox_page(r: Request, tab: str = "all", person: str = "", broker: str = "", dir: str = "", q: str = ""):
+def inbox_page(r: Request, tab: str = "all", person: str = "", broker: str = "", dir: str = "", q: str = "", archived: str = ""):
     tab = tab if tab in dict(mailbox.BUCKETS) else "all"; dir = dir if dir in ("in", "out") else ""
-    items = mailbox.messages(C, _mail_scope(r)); base = mailbox.filtered(items, "all", person, broker, dir, q)
+    items = mailbox.messages(C, _mail_scope(r), archived=bool(archived)); base = mailbox.filtered(items, "all", person, broker, dir, q)
     rows = mailbox.filtered(base, tab)
     brokers = sorted({(x["site"] or x["broker"], x["broker"]) for x in items}, key=lambda b: b[1].lower())
     people = sorted({(x["person_id"], x["person"]) for x in items if x["person_id"]}, key=lambda p: p[1] or "")
     scope = _mail_scope(r); sel = (({person} & scope) if scope is not None else {person}) if person else scope
-    return T.TemplateResponse(r, "inbox.html", {"rows": rows[:500], "total": len(rows), "counts": mailbox.counts(base), "mc": mailbox.mail_counts(C, sel)["total"], "OUTC": mailbox.OUT_CLASSES, "tab": tab, "f": {"person": person, "broker": broker, "dir": dir, "q": q[:100]},
+    return T.TemplateResponse(r, "inbox.html", {"rows": rows[:500], "total": len(rows), "counts": mailbox.counts(base), "mc": mailbox.mail_counts(C, sel)["total"], "OUTC": mailbox.OUT_CLASSES, "tab": tab, "f": {"person": person, "broker": broker, "dir": dir, "q": q[:100], "archived": bool(archived)},
         "buckets": mailbox.BUCKETS, "brokers": brokers, "fpeople": people})
 
 def _mail_item(r, direction, mid):

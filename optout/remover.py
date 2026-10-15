@@ -92,7 +92,7 @@ def _resend(frm, to, rto, subject, body, attach, ref, html=None):
             with urllib.request.urlopen(rq, timeout=30) as r: return "sent:" + json.load(r).get("id", "")  # nosec B310
         except urllib.error.HTTPError as e:
             st = "error: " + resend_error(e.code, e.read(2000))
-            if not (e.code == 429 or e.code >= 500): return st
+            if not (e.code == 429 or e.code >= 500) or quota_hit(st): return st   # the daily quota will not clear in seconds
             try: wait = min(float((e.headers or {}).get("Retry-After") or 0), 60) or None
             except (TypeError, ValueError): wait = None
         except Exception as e: st = f"error: {type(e).__name__}: {e}"[:200]
@@ -111,6 +111,10 @@ def _throttle():
         _LAST_SEND[0] = time.monotonic()
 
 RETRYABLE = re.compile(r"^error: (Resend (429|5\d\d)|(URLError|TimeoutError|timeout|RemoteDisconnected|ConnectionResetError|ConnectionRefusedError|IncompleteRead)\b)")
+def quota_hit(state):
+    """Resend refused because the account's daily (or monthly) sending quota is used up. Not the request's fault: retry later."""
+    return bool(re.match(r"^error: Resend 429: .*quota", state or "", re.I))
+
 def retryable(state):
     """True for send results worth trying again later (rate limit, Resend outage, network), not for permanent errors like 403/422."""
     return bool(RETRYABLE.match(state or ""))

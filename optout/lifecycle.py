@@ -14,7 +14,13 @@ def _days(ts):
 
 def tick():
     c = conn(); out = {"auto_approved": 0, "refiled": 0, "blind": 0, "reminders": 0, "escalations": 0}
-    if not remover.DRY: out["requeued_drafts"] = requeue_dry(c)
+    if not remover.DRY: out["requeued_drafts"] = requeue_dry(c); out["archived_drafts"] = archive_drafts(c)
+    try:   # once per release: re-match and re-classify stored broker replies, so fixes to matching apply to old mail too
+        import inbound, db as _db
+        if (c.execute("SELECT v FROM app_meta WHERE k='inbox_relinked'").fetchone() or {}).get("v") != _db.app_version():
+            nl, nk = inbound.relink(c); c.execute("INSERT INTO app_meta(k,v) VALUES('inbox_relinked',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (_db.app_version(),)); c.commit()
+            if nl or nk: event(c, "inbox_relinked", f"{nl} replies linked to their request, {nk} re-classified")
+    except Exception as e: event(c, "relink_error", f"{type(e).__name__}: {e}"[:200])
     auto = config.get("AUTO_APPROVE", "false") == "true"; amin = int(config.get("AUTO_APPROVE_MIN", "85") or 85)
     if auto:
         for l in c.execute("SELECT id FROM listings WHERE status='candidate' AND COALESCE(score,0)>=?", (amin,)).fetchall():
@@ -48,6 +54,10 @@ def tick():
         import regreq; out.update({"registry_" + k: v for k, v in regreq.tick().items()})
     except Exception as e: event(c, "registry_error", f"{type(e).__name__}: {e}"[:200])
     c.commit()
+    try:   # daily score snapshot for "why your score changed"
+        import score
+        for p in c.execute("SELECT id FROM people").fetchall(): score.record(c, p["id"], score.compute(c, p["id"])["value"])
+    except Exception as e: event(c, "score_error", type(e).__name__)
     try:
         import invites; out["invites"] = invites.flush_pending()
     except Exception as e: event(c, "invite_flush_failed", type(e).__name__)
@@ -79,6 +89,23 @@ def start_chains(c, limit=None):
         if str(remover.approve(l["id"])).startswith("removal chain started"): n += 1   # consent/auth gates may keep it waiting
         if n >= room: break
     return n
+
+def archive_drafts(c):
+    """Live mode: a dry-run draft whose request has since moved on is history. Archive it (hidden from the main Inbox, kept for the record)
+    when (a) the same request later went out for real (same person, address and stage), (b) it belongs to a listing that is now handled by
+    the live removal chain, or (c) its registry request is back in the live queue, sent, answered or covered by DROP. Drafts that match
+    none of these stay visible. Never sends anything; people who have not signed stay locked by the normal gates."""
+    n = 0
+    for o in c.execute("SELECT id, person_id, to_addr, listing_id, stage FROM outbox WHERE state='dry_run_superseded'").fetchall():
+        ok = c.execute("SELECT 1 FROM outbox WHERE person_id=? AND to_addr=? AND state='sent' AND COALESCE(stage,0)=COALESCE(?,0)", (o["person_id"], o["to_addr"], o["stage"])).fetchone()
+        if not ok and o["listing_id"]:
+            ok = c.execute("SELECT 1 FROM listings WHERE id=? AND status NOT IN ('candidate')", (o["listing_id"],)).fetchone()
+        if not ok:
+            try: ok = c.execute("SELECT 1 FROM reg_requests WHERE person_id=? AND target=? AND status NOT IN ('dry_run')", (o["person_id"], o["to_addr"])).fetchone()
+            except Exception: ok = None
+        if ok: c.execute("UPDATE outbox SET state='dry_run_archived' WHERE id=?", (o["id"],)); n += 1
+    if n: event(c, "drafts_archived", f"{n} dry-run drafts archived: their requests went out for real or are in the live queue")
+    c.commit(); return n
 
 def requeue_dry(c):
     """Going live: dry-run drafts were never sent. Put them back in the queue so the real request goes out first (rate limits

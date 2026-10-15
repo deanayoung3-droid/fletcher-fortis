@@ -11,11 +11,15 @@ TAG = re.compile(r"\[FF-([a-z0-9_]+)-(\d+)\]", re.I)
 PLUS = re.compile(r"[\w.-]+\+([a-z0-9_]+)@", re.I)
 URL = re.compile(r"https?://[^\s<>\"')\]]+", re.I)
 VERIFY_URL = re.compile(r"confirm|verif|optout|opt-out|opt_out|remov|suppress|unlist|privacy|token|activate", re.I)
-KINDS = [("removed", re.compile(r"(has|have) been (removed|deleted|suppressed|processed)|removal (is )?complete|request (has been |was )?(completed|fulfilled)|successfully (removed|opted)", re.I)),
+KINDS = [("not_found", re.compile(r"(unable|not able) to (find|locate)( or verify)? (a match|any (records?|data|information|personal))|(did|do|does) not (find|have|hold|possess) any (records?|data|(personal )?information)|"
+                               r"(did not|could not|couldn't) find any (records?|data|information|match)|no (records?|data|personal information|matching records?) (was |were )?(found|located)|"
+                               r"do not have your (data|information)|nothing (for us )?to delete|no longer (possesses|holds|has) (any )?personal information", re.I)),
+         ("removed", re.compile(r"(has|have) been (removed|deleted|suppressed|processed)|removal (is )?complete|request (has been |was )?(completed|fulfilled)|successfully (removed|opted)|(right|request)[\w\s-]{0,60} has been completed|"
+                             r"has received and fulfilled|added (you |the information provided |this information )?to our (opt.?out|suppression|do not sell) lists?|marked (this|your) request as completed", re.I)),
          ("verify", re.compile(r"(confirm|verify) (your )?(request|email|opt.?out|removal)|click (the|this) link|verification link", re.I)),
          ("need_info", re.compile(r"verify your identity|additional information|unable to (locate|verify)|need more information|government.issued", re.I)),
          ("denied", re.compile(r"(cannot|can't|will not|unable to) (honor|process|comply)|request (is |was )?denied|not a california resident", re.I)),
-         ("ack", re.compile(r"(we|have) received your|request (has been )?received|ticket|case number", re.I))]
+         ("ack", re.compile(r"(we|have) received your|request (has been )?received|ticket|case number|will (consider and )?(review|process)|provide a response within|confirms that .{0,60} (has )?received", re.I))]
 
 JUNK_PHISH = re.compile(r"verify your account|password (?:expired|reset required)|unusual sign.?in|gift card|wire transfer|crypto|suspended|invoice attached", re.I)
 JUNK_SPAM = re.compile(r"unsubscribe|limited time|act now|you(?:'| ha)ve won|free trial|% off|newsletter", re.I)
@@ -70,6 +74,37 @@ def text_of(msg):
     links += URL.findall(body)
     return body, list(dict.fromkeys(l.rstrip(".,;") for l in links))
 
+GREETING = re.compile(r"To (.{2,120}?) privacy team", re.I)
+def registry_outbox(c, pid, body):
+    """Registry request this reply answers, found from the greeting of our own letter quoted in the reply ('To <broker> privacy team').
+    Returns the request's outbox id, or None."""
+    try:
+        import registries
+        names = {(b.get("name") or "").strip().lower(): b["id"] for b in registries.brokers()}
+    except Exception: return None
+    for m in GREETING.finditer(body[:40000]):
+        bid = names.get(re.sub(r"^>+\s*", "", m.group(1)).strip().lower())
+        if not bid: continue
+        r = c.execute("SELECT outbox_id FROM reg_requests WHERE person_id=? AND broker=? AND outbox_id IS NOT NULL", (pid, bid)).fetchone()
+        if r: return r["outbox_id"]
+    return None
+
+def relink(c):
+    """Re-run matching and classification on stored replies (after a classifier or matching fix). Never clicks links or changes
+    listings; only fills in person / request links that were missing and updates the kind. Returns (relinked, reclassified)."""
+    nl = nk = 0
+    for r in c.execute("SELECT id, person_id, outbox_id, to_addr, subject, body, kind FROM inbox WHERE COALESCE(kind,'') NOT IN ('junk','phishing') OR person_id IS NOT NULL").fetchall():
+        body = r["body"] or ""; subj = r["subject"] or ""; pid, oid = r["person_id"], r["outbox_id"]
+        if not pid:
+            for m in [PLUS.search(r["to_addr"] or "")] + list(PLUS.finditer(body[:40000])):
+                if m and c.execute("SELECT 1 FROM people WHERE id=?", (m.group(1).lower(),)).fetchone(): pid = m.group(1).lower(); break
+        if pid and not oid: oid = registry_outbox(c, pid, body)
+        kind = r["kind"] if r["kind"] in ("drop_id", "status_update", "verified", "drop_other") else classify(subj, body)
+        if (pid, oid) != (r["person_id"], r["outbox_id"]): nl += 1
+        if kind != r["kind"]: nk += 1
+        if (pid, oid, kind) != (r["person_id"], r["outbox_id"], r["kind"]): c.execute("UPDATE inbox SET person_id=?, outbox_id=?, kind=? WHERE id=?", (pid, oid, kind, r["id"]))
+    c.commit(); return nl, nk
+
 def classify(subject, body):
     for k, rx in KINDS:
         if rx.search(subject + "\n" + body[:8000]): return k
@@ -108,8 +143,10 @@ def handle(c, raw: bytes, clicker=_click):
     if m:
         o = c.execute("SELECT * FROM outbox WHERE id=? AND person_id=?", (int(m.group(2)), m.group(1).lower())).fetchone()
         if o: pid, oid, lid = o["person_id"], o["id"], o["listing_id"]
-    if not pid and (m := PLUS.search(to)):
-        if c.execute("SELECT 1 FROM people WHERE id=?", (m.group(1).lower(),)).fetchone(): pid = m.group(1).lower()
+    if not pid:   # plus address: on the envelope, or in our own letter quoted back (Reply-To privacy+<id>@)
+        for m in [PLUS.search(to)] + list(PLUS.finditer(body[:40000])):
+            if m and c.execute("SELECT 1 FROM people WHERE id=?", (m.group(1).lower(),)).fetchone(): pid = m.group(1).lower(); break
+    if pid and not oid: oid = registry_outbox(c, pid, body)   # replies sent through a privacy platform (e.g. TrustSuperset) without our subject tag
     site = broker_site(sender_dom)
     if not lid and site:
         q = f"SELECT * FROM listings WHERE site IN ({','.join('?'*len(site))}) AND status IN ('submitted','pending','approved','needs_human')" + (" AND person_id=?" if pid else "") + " ORDER BY submitted_at DESC"  # nosec B608
@@ -136,12 +173,12 @@ def handle(c, raw: bytes, clicker=_click):
             if DRY or not AUTOCLICK: clicked.append(("would-click (DRY_RUN)" if DRY else "autoclick off") + " " + u); continue
             try: clicked.append(f"{clicker(u)} {u}")
             except Exception as e: clicked.append(f"error {e} {u}"[:300])
-    new = {"verify": "pending", "removed": "pending", "ack": "pending", "need_info": "needs_human", "denied": "needs_human"}.get(kind)
+    new = {"verify": "pending", "removed": "pending", "not_found": "pending", "ack": "pending", "need_info": "needs_human", "denied": "needs_human"}.get(kind)
     if lid and new:
         c.execute("UPDATE listings SET status=? WHERE id=? AND status NOT IN ('confirmed_removed','not_me')", (new, lid))
     c.execute("INSERT INTO inbox(ts,person_id,listing_id,outbox_id,from_addr,to_addr,subject,kind,links,clicked,body) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
               (now(), pid, lid, oid, enc(frm), enc(to.strip()), enc(subj), kind, enc(json.dumps(links[:20])), enc(json.dumps(clicked)), enc(body[:20000])))
     event(c, "broker_reply_" + kind, f"{frm} | {subj}" + (" | " + "; ".join(clicked) if clicked else ""), pid, lid)
-    if kind == "removed" and lid: event(c, "broker_reports_removed", "will be marked Removed only after the next re-scan confirms it", pid, lid)
+    if kind in ("removed", "not_found") and lid: event(c, "broker_reports_removed", "will be marked Removed only after the next re-scan confirms it", pid, lid)
     c.commit()
     return {"person": pid, "listing": lid, "outbox": oid, "site": sorted(site) if site else None, "kind": kind, "clicked": clicked, "status": new if lid else None}

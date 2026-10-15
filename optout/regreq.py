@@ -54,24 +54,25 @@ def tick(limit=None):
             for r in c.execute("SELECT id, broker FROM reg_requests WHERE person_id=? AND status='queued'", (p["id"],)).fetchall():
                 if (B.get(r["broker"]) or {}).get("registries") == ["CA"]: c.execute("UPDATE reg_requests SET status='covered_by_drop', updated=? WHERE id=?", (now(), r["id"]))
     P = {p["id"]: p for p in people}
-    # sends that failed for a temporary reason (Resend 429 rate limit, 5xx, network) go back in the queue, up to MAX_TRIES
+    # sends that failed for a temporary reason (Resend 429 rate limit, 5xx, network) go back in the queue, up to MAX_TRIES.
+    # Resend's daily quota is not the request's fault: those go back without using a try.
     if not remover.DRY:
-        for r in c.execute("SELECT q.id, o.state FROM reg_requests q JOIN outbox o ON o.id=q.outbox_id WHERE q.status='failed' AND COALESCE(q.tries,0)<?", (MAX_TRIES,)).fetchall():
-            if remover.retryable(r["state"]):
+        for r in c.execute("SELECT q.id, q.tries, o.state FROM reg_requests q JOIN outbox o ON o.id=q.outbox_id WHERE q.status='failed'").fetchall():
+            if remover.quota_hit(r["state"]):
+                c.execute("UPDATE reg_requests SET status='queued', updated=? WHERE id=?", (now(), r["id"])); out["retried"] = out.get("retried", 0) + 1
+            elif remover.retryable(r["state"]) and (r["tries"] or 0) < MAX_TRIES:
                 c.execute("UPDATE reg_requests SET status='queued', tries=COALESCE(tries,0)+1, updated=? WHERE id=?", (now(), r["id"])); out["retried"] = out.get("retried", 0) + 1
-        if out.get("retried"): event(c, "registry_retry", f"{out['retried']} requests re-queued after a temporary send error (rate limit or outage)")
-    for r in c.execute("SELECT * FROM reg_requests WHERE status='queued' ORDER BY id LIMIT ?", (limit,)).fetchall():
+        if out.get("retried"): event(c, "registry_retry", f"{out['retried']} requests re-queued after a temporary send error (rate limit, daily quota or outage)")
+    for r in fair_batch(c, limit):
         b = B.get(r["broker"]); p = P.get(r["person_id"])
         if not b or not p: continue
         ok, why = remover.can_send(p)
         if not ok and not remover.DRY: c.execute("UPDATE reg_requests SET status=?, updated=? WHERE id=?", ("blocked_auth" if "e-signed" in why else "queued", now(), r["id"])); continue
         st, oid = send(c, p, b, 0)
         c.execute("UPDATE reg_requests SET status=?, outbox_id=?, sent_at=?, updated=? WHERE id=?", (st, oid, now(), now(), r["id"])); out["sent"] += 1
-    # replies (inbound.py stored them with outbox_id); kinds: verify / ack / removed / need_info / denied
-    M = {"removed": "completed", "ack": "acknowledged", "verify": "acknowledged", "need_info": "needs_info", "denied": "denied"}
-    for r in c.execute("""SELECT q.id, i.kind FROM reg_requests q JOIN outbox o ON o.person_id=q.person_id AND o.subject IS NOT NULL
-                          JOIN inbox i ON i.outbox_id=o.id WHERE o.id IN (SELECT outbox_id FROM reg_requests) AND q.outbox_id=o.id AND (q.reply_kind IS NULL OR q.reply_kind<>i.kind)""").fetchall():
-        if r["kind"] in M: c.execute("UPDATE reg_requests SET status=?, reply_kind=?, updated=? WHERE id=?", (M[r["kind"]], r["kind"], now(), r["id"])); out["replies"] += 1
+        if st == "failed" and oid and remover.quota_hit((c.execute("SELECT state FROM outbox WHERE id=?", (oid,)).fetchone() or {}).get("state")):
+            event(c, "registry_paused", "Resend daily sending quota reached; the rest of the queue waits for the next hourly run"); break
+    out["replies"] = sync_replies(c)
     fu, es = int(config.get("FOLLOWUP_DAYS") or 20), int(config.get("ESCALATE_DAYS") or 45)
     for r in c.execute("SELECT * FROM reg_requests WHERE status IN ('sent','dry_run','acknowledged') AND sent_at IS NOT NULL AND (status<>'dry_run' OR ?)", (1 if remover.DRY else 0,)).fetchall():
         d = (datetime.datetime.now() - datetime.datetime.fromisoformat(r["sent_at"][:19])).days
@@ -79,6 +80,38 @@ def tick(limit=None):
         if not stage or r["broker"] not in B or r["person_id"] not in P: continue
         send(c, P[r["person_id"]], B[r["broker"]], stage, r["sent_at"]); c.execute("UPDATE reg_requests SET stage=?, updated=? WHERE id=?", (stage, now(), r["id"])); out["followups"] += 1
     c.commit(); return out
+
+def fair_batch(c, limit):
+    """Next queued requests, taken in turn from each person (round-robin by id), so one person's long queue never holds up the others."""
+    per = {}
+    for r in c.execute("SELECT * FROM reg_requests WHERE status='queued' ORDER BY id").fetchall(): per.setdefault(r["person_id"], []).append(r)
+    out, i = [], 0
+    while len(out) < limit and any(i < len(v) for v in per.values()):
+        for v in per.values():
+            if i < len(v) and len(out) < limit: out.append(v[i])
+        i += 1
+    return out
+
+# broker reply kind -> request status, and how far along each status is (a later, weaker reply never downgrades a request)
+REPLY = {"removed": "completed", "not_found": "completed", "ack": "acknowledged", "verify": "acknowledged", "need_info": "needs_info", "denied": "denied"}
+RANK = {"queued": 0, "failed": 0, "sent": 1, "acknowledged": 2, "needs_info": 3, "denied": 3, "completed": 4}
+def sync_replies(c):
+    """Apply broker replies (inbound.py links them to the outbox row they answer) to the registry requests, oldest first.
+    Replies to a follow-up count too: any registry email to the request's address for that person maps to the request."""
+    reqs = c.execute("SELECT id, person_id, target, outbox_id, status, reply_kind FROM reg_requests WHERE outbox_id IS NOT NULL").fetchall()
+    by_oid = {r["outbox_id"]: r for r in reqs}; by_addr = {}
+    for r in reqs: by_addr.setdefault((r["person_id"], (r["target"] or "").lower()), []).append(r)
+    n = 0; state = {r["id"]: (r["status"], r["reply_kind"]) for r in reqs}
+    for i in c.execute("SELECT i.id, i.kind, i.outbox_id, o.person_id, o.to_addr FROM inbox i JOIN outbox o ON o.id=i.outbox_id WHERE i.kind IN (%s) ORDER BY i.id" % ",".join("?" * len(REPLY)), tuple(REPLY)).fetchall():
+        q = by_oid.get(i["outbox_id"])
+        if not q:
+            cand = by_addr.get((i["person_id"], (i["to_addr"] or "").lower())) or []
+            q = cand[0] if len(cand) == 1 else None
+        if not q: continue
+        st, rk = state[q["id"]]; new = REPLY[i["kind"]]
+        if RANK.get(new, 0) < RANK.get(st, 0) or (new, i["kind"]) == (st, rk): continue
+        state[q["id"]] = (new, i["kind"]); c.execute("UPDATE reg_requests SET status=?, reply_kind=?, updated=? WHERE id=?", (new, i["kind"], now(), q["id"])); n += 1
+    c.commit(); return n
 
 def send(c, p, b, stage, sent_at=None):
     """Email when the registry lists an address; otherwise record the web form for the form filler (DRY_RUN: recorded only)."""

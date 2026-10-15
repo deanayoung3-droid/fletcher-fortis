@@ -39,13 +39,15 @@ def _broker_from_addr(addr):
 # One definition of "sent", shared by Inbox, Family & accounts and anything else that counts mail.
 #   sent     : delivered to the provider for real (outbox.state == 'sent')
 #   drafted  : written in dry run, never left the server ('dry_run', and 'dry_run_superseded' once going live re-queued it)
+#   archived : a dry-run draft whose request later went out for real or is back in the live queue ('dry_run_archived'); hidden by default
 #   not_sent : failed or held (error / blocked / not sent)
 #   queued   : waiting to go out
 #   manual   : a web form recorded for a person to submit (not an email)
-OUT_CLASSES = (("sent", "Sent"), ("drafted", "Drafted (dry run)"), ("not_sent", "Not sent"), ("queued", "Queued"), ("manual", "Web form for a person"))
+OUT_CLASSES = (("sent", "Sent"), ("drafted", "Drafted (dry run)"), ("archived", "Archived drafts"), ("not_sent", "Not sent"), ("queued", "Queued"), ("manual", "Web form for a person"))
 def out_class(state):
     st = state or ""
     if st == "sent": return "sent"
+    if st == "dry_run_archived": return "archived"   # dry-run draft whose request later went out for real or is in the live queue
     if st.startswith("dry_run"): return "drafted"
     if st == "queued": return "queued"
     if st.startswith(("blocked", "error", "not sent")): return "not_sent"
@@ -66,6 +68,7 @@ def mail_counts(c, person_ids=None):
 
 def _out_status(o, lst, reg, handled):
     st = (o["state"] or ""); cls = out_class(st)
+    if cls == "archived": return ("Archived draft", "gray", "done")
     if cls == "drafted": return ("Draft (dry run, not sent)", "gray", "done" if handled or st != "dry_run" else "pending")
     if cls == "queued": return ("Queued", "amber", "pending")
     if cls == "manual": return ("Web form for a person", "purple", "done" if handled else "needs")
@@ -80,18 +83,22 @@ def _out_status(o, lst, reg, handled):
         if reg["status"] in REG_NEEDS: return ("Needs you", "purple", "needs")
     return ("Sent · awaiting reply", "blue", "progress")
 
-def messages(c, person_ids=None):
+def messages(c, person_ids=None, archived=False):
     """Newest first. Each item: dict(key, dir, id, ts, person_id, person, broker, site, subject, label, color, bucket, kind, listing_id, reg_id, handled)."""
     ensure(c); handled = {r["k"] for r in c.execute("SELECT k FROM mail_handled")}
     people = {r["id"]: r["full_name"] for r in c.execute("SELECT id, full_name FROM people")}
     listings = {r["id"]: r for r in c.execute("SELECT id, site, status, person_id FROM listings")}
     regs = _reg_by_outbox(c); out = []
-    for o in c.execute("SELECT id, ts, person_id, to_addr, subject, state, listing_id, stage, channel FROM outbox"):
+    try: reg_addr = {(r["person_id"], (r["target"] or "").lower()): r["status"] for r in c.execute("SELECT person_id, target, status FROM reg_requests")}
+    except Exception: reg_addr = {}
+    for o in c.execute("SELECT id, ts, person_id, to_addr, subject, state, listing_id, stage, channel FROM outbox" + ("" if archived else " WHERE COALESCE(state,'')<>'dry_run_archived'")):
         l = listings.get(o["listing_id"]); reg = regs.get(o["id"]); k = f"out-{o['id']}"
         site = (l["site"] if l else ("reg:" + reg["broker"] if reg else ""))
         ch = o["channel"] or ""
         broker = _site_name(site) if site else ("Weekly digest" if ch.startswith(("weekly", "summary")) else ("Invite" if ch == "onboarding" else _broker_from_addr(o["to_addr"]) or "Email"))
         label, color, bucket = _out_status(o, l["status"] if l else None, reg, k in handled)
+        if label == "Not sent" and not reg and ch == "registry_email" and reg_addr.get((o["person_id"], (o["to_addr"] or "").lower()), "failed") != "failed":
+            label, color, bucket = "Not sent · retried", "gray", "done"   # a temporary failure whose request went back in the queue (or out since)
         kind = "digest" if ch in DIGEST else (STAGE.get(o["stage"] or 0, "Request").lower().replace("-", "_"))
         out.append(dict(key=k, dir="out", id=o["id"], ts=o["ts"] or "", person_id=o["person_id"], person=people.get(o["person_id"], ""), broker=broker, site=site,
                         subject=o["subject"] or "(no subject)", label=label, color=color, bucket=bucket, kind=kind, stage=STAGE.get(o["stage"] or 0, "Request") if kind != "digest" else ch.replace("_", " ").title(),
@@ -120,11 +127,11 @@ def counts(items):
 def get(c, direction, mid):
     row = c.execute(f"SELECT * FROM {'outbox' if direction == 'out' else 'inbox'} WHERE id=?", (mid,)).fetchone()  # nosec B608: fixed table names
     if not row: return None, None
-    item = next((x for x in messages(c) if x["key"] == f"{direction}-{mid}"), None); return row, item
+    item = next((x for x in messages(c, archived=True) if x["key"] == f"{direction}-{mid}"), None); return row, item
 
 def thread(c, item):
     """Everything on the same request: messages with the same listing or registry request (or person+site), plus listing events."""
-    items = messages(c); same = []
+    items = messages(c, archived=True); same = []
     for x in items:
         if x["key"] == item["key"]: same.append(x); continue
         if item["listing_id"] and x["listing_id"] == item["listing_id"]: same.append(x)
