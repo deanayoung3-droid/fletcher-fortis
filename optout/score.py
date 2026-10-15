@@ -1,72 +1,98 @@
 """Privacy score (0-100) per person, with the breakdown shown on the person page.
 
-Everything we know about is worth points; each item keeps a share of its points until it is resolved:
-  people-search listings (up to 60 points, scaled so a handful of listings is not as bad as dozens)
-    still visible / not yet requested ........ 100% (reappeared: also counts extra)
-    request sent, no confirmation yet ........ 70%  (counts a little)
-    broker confirmed deletion by email, waiting for the re-scan ... 25% (counts mostly; the listing is only
-                                               marked Removed after a re-scan confirms it)
-    broker says it holds no records .......... 0% (clear)
-    removed, confirmed by re-scan ............ 0%   (counts fully)
-  registered data brokers (request-based, up to 15 points, by share of brokers)
-    not sent yet / failed .................... 100%
-    sent, acknowledged, asked for more ....... 70%
-    covered by California DROP ............... 50%
-    confirmed deleted ........................ 10%
-    "no records found" ....................... 0% (clear)
-  sites that blocked the automated scan: 0.75 point each, at most 10 (unknown risk)
+Score = 100 minus the points still lost. Two shares:
+
+People-search listings: 60 points, spread over the listings found (plus a small cushion, so two listings are not as bad as
+twenty). Each listing keeps part of its share until it is resolved:
+    still visible / not yet filed / came back .. 100% lost
+    removal request sent, no reply yet ......... 70% lost   (sending counts a little)
+    broker emailed "removed", re-scan pending .. 15% lost   (most of the points)
+    broker says it holds no records ............ 0%         (clear)
+    gone on re-scan ............................ 0%         (all the points)
+
+Registered data brokers: 40 points.
+    Reach (15 points): the share of registry brokers we have contacted or that California DROP covers. A broker not contacted
+        yet costs its share; one already waiting in the automatic queue costs a third of that.
+    Confirmations (25 points, on a curve): every deletion confirmation or "no records" reply earns points back,
+        25 x (1 - e^(-confirmed/25)): about +1 for the first, +6 for the first 7, +16 for 25, full marks around 100
+        (or as soon as every broker in scope has answered).
+        Brokers never un-confirm, so the score only goes up as replies arrive.
+
+Sites that blocked the automated scan cost 0.75 point each, at most 10 (unknown risk).
 """
-import datetime
+import datetime, math
 from db import now
 
+FORMULA = "v2"            # bump when the weighting changes; snapshots are recomputed once
+FORMULA_NOTE = "Score formula updated Oct 15, 2026 (v1.3.9): broker confirmations now move the score. History recalculated."
 OPEN_FULL = ("candidate", "approved", "needs_human", "blocked_auth", "reappeared")
-LISTING_PTS, REG_PTS, UNKNOWN_EACH, UNKNOWN_MAX = 60, 15, 0.75, 10
+LISTING_PTS, REACH_PTS, CONF_PTS, CONF_TAU, QUEUED_SHARE, UNKNOWN_EACH, UNKNOWN_MAX = 60, 15, 25, 25.0, 1 / 3, 0.75, 10
+RES = {"open": 1.0, "reappeared": 1.0, "sent": 0.7, "broker_confirmed": 0.15, "clear": 0.0, "removed": 0.0}
+CONTACTED_ST = ("sent", "acknowledged", "needs_info", "denied", "completed")
 
 def _grade(v): return "ABCDEFG"[min(6, (100 - v) // 13)]
+def conf_points(n, scope=10**6):
+    """Points earned by n confirmations, on a curve that reaches full marks when every broker in scope has confirmed."""
+    return CONF_PTS * min(1.0, (1 - math.exp(-n / CONF_TAU)) / (1 - math.exp(-max(scope, 1) / CONF_TAU)))
 
-def compute(c, pid):
+def _d(x): return (x or "")[:10]
+
+def compute(c, pid, day=None):
+    """Score now, or as of the end of `day` (YYYY-MM-DD) rebuilt from dates (for the history chart)."""
+    on = (lambda d: bool(d) and d <= day) if day else (lambda d: True)
     replies = {}
-    for r in c.execute("SELECT listing_id, kind FROM inbox WHERE person_id=? AND listing_id IS NOT NULL AND kind IN ('removed','not_found')", (pid,)):
-        if replies.get(r["listing_id"]) != "removed": replies[r["listing_id"]] = r["kind"]   # a deletion confirmation wins over "no records"
-    L = {"removed": 0, "broker_confirmed": 0, "clear": 0, "sent": 0, "open": 0, "reappeared": 0}; unknown = 0
-    for l in c.execute("SELECT id, status FROM listings WHERE person_id=?", (pid,)):
+    for r in c.execute("SELECT listing_id, kind, ts FROM inbox WHERE person_id=? AND listing_id IS NOT NULL AND kind IN ('removed','not_found')", (pid,)):
+        if on(_d(r["ts"])) and replies.get(r["listing_id"]) != "removed": replies[r["listing_id"]] = r["kind"]   # a deletion confirmation wins over "no records"
+    L = {k: 0 for k in RES}; unknown = 0
+    for l in c.execute("SELECT id, status, first_seen, submitted_at, confirmed_at FROM listings WHERE person_id=?", (pid,)):
         st = l["status"]
+        if day:
+            if not on(_d(l["first_seen"])): continue
+            if st == "confirmed_removed" and not on(_d(l["confirmed_at"])): st = "submitted"
+            if st in ("submitted", "pending") and l["submitted_at"] and not on(_d(l["submitted_at"])): st = "approved"
         if st in ("not_me", "checked_clear"): continue
         if st == "manual_check": unknown += 1
         elif st == "confirmed_removed": L["removed"] += 1
         elif st == "reappeared": L["reappeared"] += 1
         elif st in OPEN_FULL: L["open"] += 1
         elif st in ("submitted", "pending"): L[{"removed": "broker_confirmed", "not_found": "clear"}.get(replies.get(l["id"]), "sent")] += 1
-    n_l = sum(L.values()); res_l = L["open"] + L["reappeared"] + 0.7 * L["sent"] + 0.25 * L["broker_confirmed"]
-    scale_l = LISTING_PTS / (n_l + 2) if n_l else 0
-    R = {"clear": 0, "deleted": 0, "drop": 0, "sent": 0, "todo": 0}
-    try: rows = c.execute("SELECT status, reply_kind FROM reg_requests WHERE person_id=?", (pid,)).fetchall()
+    n_l = sum(L.values()); scale = LISTING_PTS / (n_l + 2) if n_l else 0
+    R = {"deleted": 0, "clear": 0, "reached": 0, "queued": 0, "todo": 0}
+    try: rows = c.execute("SELECT r.id, r.status, r.reply_kind, r.created, o.ts sent_ts FROM reg_requests r LEFT JOIN outbox o ON o.id=r.outbox_id WHERE r.person_id=?", (pid,)).fetchall()
     except Exception: rows = []
+    dates = _reg_reply_dates(c, pid) if day else {}
     for r in rows:
         st = r["status"]
         if st in ("people_search", "no_channel"): continue
-        if st == "completed": R["clear" if r["reply_kind"] == "not_found" else "deleted"] += 1
-        elif st == "covered_by_drop": R["drop"] += 1
-        elif st in ("sent", "acknowledged", "needs_info", "denied"): R["sent"] += 1
-        else: R["todo"] += 1   # queued, failed, blocked_auth, dry_run
-    n_r = sum(R.values()); scale_r = REG_PTS / n_r if n_r else 0
-    lost = lambda cnt, share, scale: round(cnt * share * scale, 1)
-    parts = [  # (label, count, points still lost, points recovered)
-        ("Listings removed, confirmed by re-scan", L["removed"], 0, lost(L["removed"], 1, scale_l)),
-        ("Listings the broker says are removed, waiting for the re-scan", L["broker_confirmed"], lost(L["broker_confirmed"], .25, scale_l), lost(L["broker_confirmed"], .75, scale_l)),
-        ("Listings where the broker says it holds no records", L["clear"], 0, lost(L["clear"], 1, scale_l)),
-        ("Listings with a removal request sent, no confirmation yet", L["sent"], lost(L["sent"], .7, scale_l), lost(L["sent"], .3, scale_l)),
-        ("Listings still visible (to review or being filed)", L["open"], lost(L["open"], 1, scale_l), 0),
-        ("Listings that came back after removal", L["reappeared"], lost(L["reappeared"], 1, scale_l), 0),
-        ("Registered brokers that found no records", R["clear"], 0, lost(R["clear"], 1, scale_r)),
-        ("Registered brokers that confirmed deletion", R["deleted"], lost(R["deleted"], .1, scale_r), lost(R["deleted"], .9, scale_r)),
-        ("Registered brokers covered by California DROP", R["drop"], lost(R["drop"], .5, scale_r), lost(R["drop"], .5, scale_r)),
-        ("Registered brokers with a request sent", R["sent"], lost(R["sent"], .7, scale_r), lost(R["sent"], .3, scale_r)),
-        ("Registered brokers not contacted yet", R["todo"], lost(R["todo"], 1, scale_r), 0),
+        if day and st == "completed" and not on(dates.get(r["id"]) or ""): st = "sent"
+        if day and st in CONTACTED_ST and not on(_d(r["sent_ts"])): st = "queued"
+        if day and st == "covered_by_drop" and not on(_d(r["created"])): st = "queued"
+        if st == "completed": R["clear" if r["reply_kind"] == "not_found" else "deleted"] += 1; R["reached"] += 1
+        elif st in CONTACTED_ST or st == "covered_by_drop": R["reached"] += 1
+        elif st == "queued": R["queued"] += 1
+        else: R["todo"] += 1   # failed, blocked_auth, dry_run
+    scope = R["reached"] + R["queued"] + R["todo"]
+    nconf = R["deleted"] + R["clear"]; got = conf_points(nconf, scope) if scope else 0
+    per = REACH_PTS / scope if scope else 0
+    pts = lambda n, share: round(n * share * scale, 1)
+    parts = [  # (label, count, points still lost, points earned back)
+        ("Listings gone on re-scan", L["removed"], 0, pts(L["removed"], 1)),
+        ("Listings the broker confirmed removed (re-scan pending)", L["broker_confirmed"], pts(L["broker_confirmed"], .15), pts(L["broker_confirmed"], .85)),
+        ("Listings where the broker has no records", L["clear"], 0, pts(L["clear"], 1)),
+        ("Listing removal requests sent, no reply yet", L["sent"], pts(L["sent"], .7), pts(L["sent"], .3)),
+        ("Listings still visible (to review or being filed)", L["open"], pts(L["open"], 1), 0),
+        ("Listings that came back after removal", L["reappeared"], pts(L["reappeared"], 1), 0),
+        ("Broker deletion confirmations", R["deleted"], 0, round(got * R["deleted"] / nconf, 1) if nconf else 0),
+        ("Brokers that replied \"no records\"", R["clear"], 0, round(got * R["clear"] / nconf, 1) if nconf else 0),
+        ("Registered brokers that have not confirmed yet", scope - nconf, round(CONF_PTS - got, 1) if scope else 0, 0),
+        ("Registered brokers contacted or covered by California DROP", R["reached"], 0, round(R["reached"] * per, 1)),
+        ("Registered brokers waiting in the automatic queue", R["queued"], round(R["queued"] * per * QUEUED_SHARE, 1), round(R["queued"] * per * (1 - QUEUED_SHARE), 1)),
+        ("Registered brokers not contacted (failed or blocked)", R["todo"], round(R["todo"] * per, 1), 0),
         ("Sites that blocked the automated scan (unknown)", unknown, round(min(UNKNOWN_MAX, UNKNOWN_EACH * unknown), 1), 0)]
-    pen = res_l * scale_l + (R["todo"] + 0.7 * R["sent"] + 0.5 * R["drop"] + 0.1 * R["deleted"]) * scale_r + min(UNKNOWN_MAX, UNKNOWN_EACH * unknown)
+    pen = sum(L[k] * RES[k] for k in L) * scale + ((CONF_PTS - got) + (R["queued"] * QUEUED_SHARE + R["todo"]) * per if scope else 0) + min(UNKNOWN_MAX, UNKNOWN_EACH * unknown)
     v = max(0, min(100, round(100 - pen)))
-    return {"value": v, "grade": _grade(v), "open": L["open"] + L["reappeared"] + L["sent"] + L["broker_confirmed"], "removed": L["removed"] + L["broker_confirmed"] + R["deleted"], "clear": R["clear"] + L["clear"],
+    return {"value": v, "grade": _grade(v), "open": L["open"] + L["reappeared"] + L["sent"] + L["broker_confirmed"],
+            "removed": L["removed"] + L["broker_confirmed"] + R["deleted"], "clear": R["clear"] + L["clear"], "lost": round(pen, 1),
             "parts": [dict(label=a, count=b, lost=c_, gained=d) for a, b, c_, d in parts if b], "listings": L, "registry": R, "unknown": unknown}
 
 def ensure(c): c.execute("CREATE TABLE IF NOT EXISTS score_history(person_id TEXT, day TEXT, value INT, PRIMARY KEY(person_id, day))")
@@ -80,6 +106,27 @@ def change(c, pid, value):
     ensure(c); r = c.execute("SELECT value, day FROM score_history WHERE person_id=? AND day<? ORDER BY day DESC LIMIT 1", (pid, now()[:10])).fetchone()
     return (r["value"], r["day"]) if r else (None, None)
 
+
+def recompute_history(c, max_days=90):
+    """Rebuild every person's daily snapshots with the current formula (dates come from listings, replies and sends).
+    Returns the number of snapshots written."""
+    ensure(c); today = datetime.date.fromisoformat(now()[:10]); n = 0
+    for p in c.execute("SELECT id FROM people").fetchall():
+        pid = p["id"]
+        r = c.execute("SELECT MIN(d) FROM (SELECT MIN(substr(first_seen,1,10)) d FROM listings WHERE person_id=? UNION ALL SELECT MIN(day) FROM score_history WHERE person_id=?)", (pid, pid)).fetchone()[0]
+        try: start = max(datetime.date.fromisoformat(r), today - datetime.timedelta(days=max_days))
+        except Exception: start = today
+        c.execute("DELETE FROM score_history WHERE person_id=?", (pid,))
+        d = start
+        while d <= today:
+            v = compute(c, pid)["value"] if d == today else compute(c, pid, d.isoformat())["value"]
+            c.execute("INSERT INTO score_history(person_id, day, value) VALUES(?,?,?)", (pid, d.isoformat(), v)); n += 1; d += datetime.timedelta(days=1)
+    c.commit(); return n
+
+def history(c, pid, days=30):
+    """[(day, value)] for the last `days` days that have a snapshot."""
+    ensure(c); since = (datetime.date.fromisoformat(now()[:10]) - datetime.timedelta(days=days - 1)).isoformat()
+    return [(r["day"], r["value"]) for r in c.execute("SELECT day, value FROM score_history WHERE person_id=? AND day>=? ORDER BY day", (pid, since))]
 
 # ---------- shared removal counts (home tile, family cards, person page and score all read these) ----------
 FOUND_EXCLUDE = ("not_me", "manual_check", "checked_clear")

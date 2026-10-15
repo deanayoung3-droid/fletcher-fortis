@@ -22,6 +22,12 @@ def tick():
             if nl or nk: event(c, "inbox_relinked", f"{nl} replies linked to their request, {nk} re-classified")
             import regreq; regreq.sync_replies(c)
     except Exception as e: event(c, "relink_error", f"{type(e).__name__}: {e}"[:200])
+    try:   # score formula changed: rebuild the daily snapshots once so the history chart uses one formula
+        import score
+        if (c.execute("SELECT v FROM app_meta WHERE k='score_formula'").fetchone() or {}).get("v") != score.FORMULA:
+            n = score.recompute_history(c); c.execute("INSERT INTO app_meta(k,v) VALUES('score_formula',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (score.FORMULA,)); c.commit()
+            event(c, "score_recomputed", f"{n} daily score snapshots recalculated with formula {score.FORMULA}")
+    except Exception as e: event(c, "score_recompute_error", f"{type(e).__name__}: {e}"[:200])
     auto = config.get("AUTO_APPROVE", "false") == "true"; amin = int(config.get("AUTO_APPROVE_MIN", "85") or 85)
     if auto:
         for l in c.execute("SELECT id FROM listings WHERE status='candidate' AND COALESCE(score,0)>=?", (amin,)).fetchall():

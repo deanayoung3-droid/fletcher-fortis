@@ -302,7 +302,10 @@ def _weeks(pid=None, n=12):
 T.env.globals.update(chart=charts.chart, weeks=_weeks)
 def _removals(pid=None):
     import score as _sc; return _sc.removals(C, pid)
-T.env.globals.update(removals=_removals, zip=zip)
+def _score_history(pid):
+    import score as _sc; return [(datetime.date.fromisoformat(d).strftime("%b %-d"), v) for d, v in _sc.history(C, pid)]
+import score as _score_mod
+T.env.globals.update(removals=_removals, zip=zip, score_history=_score_history, SCORE_NOTE=_score_mod.FORMULA_NOTE)
 T.env.globals.update(score=_score, months=_months, OPEN=OPEN, today=lambda: datetime.date.today())
 T.env.globals.update(fam_list=_people, hq=_queue, heat=_heat, domain=_domain, pstats=lambda pid=None: stats(pid))
 import math; T.env.filters.update(ord=ord, cos=math.cos, sin=math.sin); T.env.tests["startingwith"] = lambda s, p: str(s).startswith(p)

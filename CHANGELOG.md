@@ -2,6 +2,17 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.9] - 2026-10-15
+
+### Changed
+- **Privacy score: broker confirmations now move it.** Listings are worth 60 points and registered data brokers 40.
+  - Listings: a listing gone on re-scan earns all its points, a broker's "removed" email 85%, a request sent 30%; "no records" counts as clear. A small cushion keeps a couple of listings from counting as much as dozens.
+  - Registry reach (15 points): share of registry brokers contacted or covered by California DROP. A broker not contacted yet costs its share, a third of that while it waits in the automatic queue (gentler than before).
+  - Registry confirmations (25 points, on a curve): each deletion confirmation or "no records" reply earns about a point early on (+6 for the first 7), full marks around 100 confirmations or when every broker in scope has answered. Confirmations are never taken back, so the score only rises as replies arrive.
+  - Sites that blocked the automated scan still cost 0.75 each, at most 10.
+- **"Why this score" in points.** The breakdown shows "100 − points still lost = score", then each contribution, e.g. "+5.6 from 7 broker deletion confirmations".
+- **Score history.** New "Privacy score, by day" chart on the person page, with a note about the formula change. Daily snapshots are recalculated once with the new formula from listing, send and reply dates.
+
 ## [1.3.8] - 2026-10-15
 
 ### Fixed

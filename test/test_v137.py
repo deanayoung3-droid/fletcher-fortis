@@ -127,8 +127,8 @@ def test_score_recovers_with_confirmations_and_page_explains_it():
     c.execute("UPDATE reg_requests SET status='completed', reply_kind='not_found'"); c.commit(); v4 = score.compute(c, "alex")["value"]
     c.execute("UPDATE listings SET status='confirmed_removed'"); c.commit(); v5 = score.compute(c, "alex")["value"]
     assert v0 < v1 < v2 < v3 < v4 < v5 == 100
-    d = score.compute(c, "alex"); assert any("confirmed by re-scan" in p["label"] for p in d["parts"])
+    d = score.compute(c, "alex"); assert any("gone on re-scan" in p["label"] for p in d["parts"])
     c.execute("UPDATE listings SET status='submitted'"); c.commit()
     score.ensure(c); c.execute("INSERT OR REPLACE INTO score_history VALUES('alex','2026-01-01',10)"); c.commit()
     t = admin().get("/person/alex").text
-    assert "Why this score" in t and "since 01/01" in t and "data-person-chart" in t and "Broker confirmed" in t and "Listings with a removal request sent" in t
+    assert "Why this score" in t and "since 01/01" in t and "data-person-chart" in t and "Broker confirmed" in t and "listing removal requests sent" in t
