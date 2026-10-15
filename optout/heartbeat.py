@@ -9,6 +9,14 @@ def _ago(ts):
     s = int(d.total_seconds())
     return "just now" if s < 90 else f"{s // 60} min ago" if s < 3600 else f"{s // 3600} h ago" if s < 86400 else f"{d.days} d ago"
 
+def resolved(fail_ts, ok_ts):
+    """True when a failure happened before the latest success of the same thing, so it is history, not a live problem."""
+    return bool(fail_ts and ok_ts and str(fail_ts)[:19] < str(ok_ts)[:19])
+
+# Error event kind -> the event kinds that prove the same part worked again afterwards.
+RECOVERY = {"scan_error": ("scan_complete",), "recheck_error": ("scan_complete",), "registry_error": ("registry_request",),
+            "chain_error": ("chain_submitted", "chain_pending"), "retry_error": ("automation_run",), "scheduler_error": ("lifecycle_run", "automation_run")}
+
 def status(c):
     import main
     one = lambda q, a=(): c.execute(q, a).fetchone()
@@ -30,7 +38,11 @@ def status(c):
     add("sending", "Sending", "warn" if remover.DRY else ("ok" if ready else "bad"), "dry run (nothing leaves)" if remover.DRY else ("live" if ready else "live but not configured"), f"{remover.FROM_NAME} <{remover.FROM_ADDRESS}>", "zap")
     wk = (datetime.datetime.now() - datetime.timedelta(days=7)).isoformat(timespec="seconds")
     o = {r["s"]: r["n"] for r in c.execute("SELECT CASE WHEN state='sent' THEN 'sent' WHEN state='dry_run' THEN 'dry' WHEN state LIKE 'blocked%' THEN 'blocked' WHEN state='queued' THEN 'queued' ELSE 'failed' END s, COUNT(*) n FROM outbox WHERE ts>? GROUP BY s", (wk,))}
-    add("delivery", "Email delivery (7 days)", "bad" if o.get("failed") else "ok", f"{o.get('sent', 0)} sent · {o.get('dry', 0)} dry run", f"{o.get('failed', 0)} failed · {o.get('blocked', 0)} held by safety gates · {o.get('queued', 0)} queued", "mail")
+    lf = one("SELECT MAX(ts) t FROM outbox WHERE ts>? AND state NOT IN ('sent','dry_run','queued') AND state NOT LIKE 'blocked%'", (wk,))["t"]
+    ls = one("SELECT MAX(ts) t FROM outbox WHERE state='sent'")["t"]
+    fresh = o.get("failed") and not resolved(lf, ls)   # only a failure newer than the last delivery makes this red
+    add("delivery", "Email delivery (7 days)", "bad" if fresh else "ok", f"{o.get('sent', 0)} sent · {o.get('dry', 0)} dry run",
+        (f"{o.get('failed', 0)} failed" + ("" if fresh or not o.get("failed") else f" earlier, resolved (last delivered {_ago(ls)})")) + f" · {o.get('blocked', 0)} held by safety gates · {o.get('queued', 0)} queued", "mail")
     ib = one("SELECT ts FROM inbox ORDER BY id DESC LIMIT 1"); sec = len(config.get("INBOUND_SECRET") or "") >= 32
     add("inbound", "Inbound mail", "ok" if sec and ib else "warn", ("receiving" if ib else "waiting for first message") if sec else "not configured", f"last message {_ago(ib['ts']) if ib else 'never'} · link auto-click {'on' if config.get('INBOUND_AUTOCLICK') == 'true' else 'off'}", "mail")
     dom = remover.FROM_ADDRESS.split("@")[-1]
@@ -40,7 +52,15 @@ def status(c):
     except Exception: free, size = 1, 0
     add("disk", "Disk & database", "ok" if free > .1 else "bad", f"{size:.1f} MB database", f"{free * 100:.0f}% disk free · encrypted at rest", "lock")
     day = (datetime.datetime.now() - datetime.timedelta(days=1)).isoformat(timespec="seconds")
-    errs = c.execute("SELECT kind, detail, ts FROM events WHERE ts>? AND (kind LIKE '%error%' OR kind LIKE 'ALERT%') ORDER BY id DESC LIMIT 5", (day,)).fetchall()
-    n = one("SELECT COUNT(*) n FROM events WHERE ts>? AND kind LIKE '%error%'", (day,))["n"]
-    add("errors", "Errors (24 h)", "ok" if not n else ("warn" if n < 20 else "bad"), f"{n} error{'s' if n != 1 else ''}", "; ".join(f"{e['kind']}: {(e['detail'] or '')[:60]}" for e in errs[:2]) or "nothing logged", "alert")
+    errs = c.execute("SELECT kind, detail, ts FROM events WHERE ts>? AND (kind LIKE '%error%' OR kind LIKE 'ALERT%') ORDER BY id DESC", (day,)).fetchall()
+    ok_at = {}
+    def recovered(e):
+        kinds = RECOVERY.get(e["kind"])
+        if not kinds: return False
+        if e["kind"] not in ok_at: ok_at[e["kind"]] = one(f"SELECT MAX(ts) t FROM events WHERE kind IN ({','.join('?' * len(kinds))})", kinds)["t"]
+        return resolved(e["ts"], ok_at[e["kind"]])
+    real = [e for e in errs if "error" in e["kind"]]; live = [e for e in real if not recovered(e)]
+    n, m = len(real), len(live); shown = [e for e in errs if e not in real or e in live]
+    add("errors", "Errors (24 h)", "ok" if not m else ("warn" if m < 20 else "bad"), f"{n} error{'s' if n != 1 else ''}" + (f" · {n - m} resolved" if n - m else ""),
+        "; ".join(f"{e['kind']}: {(e['detail'] or '')[:60]}" for e in shown[:2]) or ("all fixed by a later successful run" if n else "nothing logged"), "alert")
     return out

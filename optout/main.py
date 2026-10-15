@@ -763,11 +763,17 @@ def heartbeat(r: Request, check: str = "", saved: str = "", tab: str = "status",
         "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C), "mail": _mail_health(), "cov": chain.coverage(c=C), "MLABEL": chain.LABEL})
 
 def _mail_health():
+    """Email sending card. A failure older than the latest successful delivery is shown as resolved (collapsed), and the
+    status pill follows the most recent result, so an old 403 no longer looks like a live problem after mail went out."""
+    import heartbeat as hb
     errs = C.execute("SELECT ts, channel, state FROM outbox WHERE state LIKE 'error%' OR state LIKE 'not sent%' OR (state LIKE 'blocked%' AND state NOT LIKE '%e-signed%') ORDER BY id DESC LIMIT 6").fetchall()
     last_ok = (C.execute("SELECT MAX(ts) t FROM outbox WHERE state='sent'").fetchone() or {}).get("t")
     inv = db.conn().execute("SELECT invite_error FROM users WHERE invite_state='failed'").fetchall()
-    return {"key": remover.provider_ready(), "from": remover.FROM_ADDRESS, "errors": [dict(ts=e["ts"], channel=e["channel"] or "email", state=e["state"].removeprefix("error: ")) for e in errs],
-            "last_ok": last_ok, "invites_failed": len(inv)}
+    rows = [dict(ts=e["ts"], channel=e["channel"] or "email", state=e["state"].removeprefix("error: "), resolved=hb.resolved(e["ts"], last_ok)) for e in errs]
+    active = [e for e in rows if not e["resolved"]]
+    state = ("failing", "red") if active else ("working", "green") if last_ok else ("nothing sent yet", "gray")
+    return {"key": remover.provider_ready(), "from": remover.FROM_ADDRESS, "errors": active, "resolved": [e for e in rows if e["resolved"]],
+            "last_ok": last_ok, "last_error": rows[0]["ts"] if rows else None, "state": state, "invites_failed": len(inv)}
 
 @app.post("/admin/heartbeat/test-email")
 def heartbeat_test_email(r: Request, _=Depends(csrf)):
@@ -1043,7 +1049,7 @@ def onboarding_raw(r: Request):
 def favicon(): return RedirectResponse("/static/favicon.svg", 301)
 
 @app.get("/healthz")
-def health(): return {"ok": True, "dry_run": remover.DRY}
+def health(): return {"ok": True, "dry_run": remover.DRY, "version": updates.current()}
 
 SCHED = {"tick": None, "lifecycle": None}
 def scheduler():

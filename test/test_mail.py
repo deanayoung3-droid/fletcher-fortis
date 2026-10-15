@@ -43,3 +43,39 @@ def test_invite_failure_shown_and_heartbeat_test(monkeypatch):
     r = a.post("/admin/heartbeat/test-email", data={"csrf": t}); assert "Test%20email%20failed%3A%20Resend%20403" in r.headers["location"]
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen(200, b"", seen))
     r = a.post("/admin/heartbeat/test-email", data={"csrf": t}); assert "abc123" in r.headers["location"]
+
+def test_stale_failures_resolved_after_delivery():
+    """v1.3.4: a failure older than the latest successful delivery shows as resolved and the pill follows the newest result."""
+    import heartbeat
+    c = db.conn(); c.execute("DELETE FROM outbox"); c.execute("DELETE FROM events")
+    c.execute("INSERT INTO outbox(ts, to_addr, subject, body, state, channel) VALUES ('2026-10-14T13:24:00','x@example.org','s','b','error: HTTP Error 403: Forbidden','email')")
+    c.execute("INSERT INTO outbox(ts, to_addr, subject, body, state, channel) VALUES ('2026-10-14T15:16:00','x@example.org','s','b','sent','email')"); c.commit()
+    a = TestClient(main.app, follow_redirects=False); a.post("/login", data={"username": "alex", "password": APW})
+    hb = a.get("/admin/heartbeat").text
+    assert "data-mail-error" not in hb and "1 earlier error, resolved by a later delivery" in hb and "Resolved" in hb
+    assert re.search(r"data-mail-state>.*?Working", hb, re.S)
+    assert heartbeat.resolved("2026-10-14T13:24:00", "2026-10-14T15:16:00") and not heartbeat.resolved("2026-10-14T16:00:00", "2026-10-14T15:16:00")
+    c.execute("INSERT INTO outbox(ts, to_addr, subject, body, state, channel) VALUES ('2026-10-14T16:00:00','x@example.org','s','b','error: Resend 429: Too many requests','email')"); c.commit()
+    hb = a.get("/admin/heartbeat").text
+    assert "data-mail-error" in hb and re.search(r"data-mail-state>.*?Failing", hb, re.S) and "Resend 429" in hb
+
+def test_errors_card_ignores_recovered_errors():
+    import heartbeat
+    c = db.conn(); c.execute("DELETE FROM events"); n = db.now()
+    import datetime; old = (datetime.datetime.now() - datetime.timedelta(hours=2)).isoformat(timespec="seconds")
+    c.execute("INSERT INTO events(ts, kind, detail) VALUES (?, 'scan_error', 'Timeout')", (old,))
+    c.execute("INSERT INTO events(ts, kind, detail) VALUES (?, 'scan_complete', 'ok')", (n,)); c.commit()
+    e = {s["key"]: s for s in heartbeat.status(main.C)}["errors"]
+    assert e["state"] == "ok" and "1 resolved" in e["value"]
+    c.execute("INSERT INTO events(ts, kind, detail) VALUES (?, 'registry_error', 'boom')", (n,)); c.commit()
+    e = {s["key"]: s for s in heartbeat.status(main.C)}["errors"]
+    assert e["state"] == "warn" and "registry_error" in e["detail"]
+
+def test_delivery_card_green_after_later_send():
+    import heartbeat, datetime
+    c = db.conn(); c.execute("DELETE FROM outbox"); t = lambda h: (datetime.datetime.now() - datetime.timedelta(hours=h)).isoformat(timespec="seconds")
+    c.execute("INSERT INTO outbox(ts, to_addr, subject, body, state) VALUES (?,'x@example.org','s','b','error: HTTP Error 403: Forbidden')", (t(3),))
+    c.execute("INSERT INTO outbox(ts, to_addr, subject, body, state) VALUES (?,'x@example.org','s','b','sent')", (t(1),)); c.commit()
+    d = {s["key"]: s for s in heartbeat.status(main.C)}["delivery"]; assert d["state"] == "ok" and "resolved" in d["detail"]
+    c.execute("INSERT INTO outbox(ts, to_addr, subject, body, state) VALUES (?,'x@example.org','s','b','error: Resend 429')", (t(0),)); c.commit()
+    d = {s["key"]: s for s in heartbeat.status(main.C)}["delivery"]; assert d["state"] == "bad" and "resolved" not in d["detail"]
