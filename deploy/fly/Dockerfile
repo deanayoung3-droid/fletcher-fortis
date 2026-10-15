@@ -1,6 +1,6 @@
 # Fly.io wrapper around the released image. Fly mounts volumes owned by root, and the app runs as uid 10001,
 # so this starts as root only long enough to hand /data to that user, then drops all privileges.
-ARG FF_IMAGE=ghcr.io/deanayoung3-droid/fletcher-fortis:1.3.7
+ARG FF_IMAGE=ghcr.io/deanayoung3-droid/fletcher-fortis:1.3.8
 FROM ${FF_IMAGE}
 USER root
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/ff-entrypoint
