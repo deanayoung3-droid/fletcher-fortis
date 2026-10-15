@@ -65,3 +65,22 @@ def test_backup_before_migration_on_version_change():
     assert len(bk) == 1 and "0.9.0-to-" in bk[0] and oct(os.stat(f"{T}/backups/{bk[0]}").st_mode)[-3:] == "600"
     assert (b := sqlite3.connect(f"{T}/backups/{bk[0]}")).execute("SELECT COUNT(*) FROM people").fetchone()[0] == c.execute("SELECT COUNT(*) FROM people").fetchone()[0] > 0; b.close()
     db.init(); assert len([f for f in os.listdir(f"{T}/backups") if f.endswith(".db")]) == 1                       # same version: no new backup
+
+def test_temporary_send_errors_are_requeued(monkeypatch):
+    """v1.3.5: a registry request that failed with Resend 429/5xx goes back in the queue (up to MAX_TRIES); 403 stays failed."""
+    import remover
+    d = registries.merge(list(registries.parse_ca(f"{T}/ca.csv")) + list(registries.parse_or(f"{T}/or.csv")))
+    monkeypatch.setattr(registries, "brokers", lambda: d["brokers"]); monkeypatch.setattr(registries, "by_id", lambda: {b["id"]: b for b in d["brokers"]})
+    c.execute("INSERT OR IGNORE INTO people(id, full_name, first, last, city, state, enabled, email, send_enabled) VALUES('p2', ?, 'Test', 'Two', ?, 'IL', 1, ?, 1)", (db.enc("Test Two"), db.enc("Springfield"), db.enc("two@example.org"))); c.commit()
+    regreq.plan(c, c.execute("SELECT * FROM people WHERE id='p2'").fetchone()); c.commit()
+    rows = [r["id"] for r in c.execute("SELECT id FROM reg_requests WHERE person_id='p2' AND channel='email' ORDER BY id")][:2]
+    for rid, st in zip(rows, ("error: Resend 429: Too many requests", "error: Resend 403: domain is not verified")):
+        oid = c.execute("INSERT INTO outbox(ts, person_id, to_addr, state, channel) VALUES (?,?,?,?,?)", (db.now(), "p2", "x@example.org", st, "registry_email")).lastrowid
+        c.execute("UPDATE reg_requests SET status='failed', outbox_id=? WHERE id=?", (oid, rid))
+    c.execute("UPDATE reg_requests SET status='done_for_test' WHERE person_id<>'p2' AND status='queued'"); c.commit()
+    monkeypatch.setattr(remover, "DRY", False); monkeypatch.setattr(remover, "can_send", lambda p: (True, ""))
+    monkeypatch.setattr(regreq, "send", lambda c, p, b, stage, sent_at=None: ("sent", None))
+    out = regreq.tick(limit=50)
+    assert out.get("retried") == 1
+    st = {r["id"]: (r["status"], r["tries"]) for r in c.execute("SELECT id, status, tries FROM reg_requests WHERE id IN (?,?)", rows)}
+    assert st[rows[0]] == ("sent", 1) and st[rows[1]] == ("failed", 0)

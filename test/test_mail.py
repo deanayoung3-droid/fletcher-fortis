@@ -1,6 +1,6 @@
 """v1.2.3 sending fix: Resend calls carry a User-Agent (Cloudflare 1010 otherwise), errors are readable, invites show why they failed,
 and Heartbeat has 'Send test email to me' with Resend's exact answer. No real email is sent."""
-import os, sys, tempfile, pathlib, re, io, json, urllib.error, urllib.request
+import os, sys, tempfile, pathlib, re, io, json, time, urllib.error, urllib.request
 T = tempfile.mkdtemp(); ROOT = pathlib.Path(__file__).resolve().parents[1]
 os.environ.update(DB_PATH=f"{T}/app.db", SHOT_DIR=f"{T}/shots", AUTH_DIR=f"{T}/auth", PROFILES_DIR=str(ROOT / "test/profiles"), SITES_FILE=str(ROOT / "test/sites.test.yaml"),
                   SCHEDULER="false", DRY_RUN="true", ADMIN_USERNAME="alex", ADMIN_PASSWORD="admin correct horse battery", COOKIE_SECURE="false",
@@ -79,3 +79,17 @@ def test_delivery_card_green_after_later_send():
     d = {s["key"]: s for s in heartbeat.status(main.C)}["delivery"]; assert d["state"] == "ok" and "resolved" in d["detail"]
     c.execute("INSERT INTO outbox(ts, to_addr, subject, body, state) VALUES (?,'x@example.org','s','b','error: Resend 429')", (t(0),)); c.commit()
     d = {s["key"]: s for s in heartbeat.status(main.C)}["delivery"]; assert d["state"] == "bad" and "resolved" not in d["detail"]
+
+def test_resend_retries_429_then_succeeds_and_is_throttled(monkeypatch):
+    calls = []
+    def f(rq, timeout=0):
+        calls.append(time.monotonic())
+        if len(calls) < 3: raise urllib.error.HTTPError(rq.full_url, 429, "x", {}, io.BytesIO(b'{"message":"Too many requests"}'))
+        return io.BytesIO(json.dumps({"id": "ok1"}).encode())
+    monkeypatch.setattr(urllib.request, "urlopen", f); monkeypatch.setattr(remover, "SEND_BACKOFF", (0, 0, 0))
+    monkeypatch.setenv("SEND_INTERVAL_MS", "200")
+    assert remover._resend("A <a@example.org>", "b@example.org", "a@example.org", "s", "t", None, "r9") == "sent:ok1" and len(calls) == 3
+    assert all(b - a >= 0.19 for a, b in zip(calls, calls[1:]))   # never faster than the send interval
+    calls.clear(); monkeypatch.setattr(urllib.request, "urlopen", lambda rq, timeout=0: (calls.append(1), (_ for _ in ()).throw(urllib.error.HTTPError(rq.full_url, 403, "x", {}, io.BytesIO(b'{"message":"no"}'))))[1])
+    assert remover._resend("A <a@example.org>", "b@example.org", "a@example.org", "s", "t", None, "r10").startswith("error: Resend 403") and len(calls) == 1   # permanent: no retry
+    assert remover.retryable("error: Resend 429: Too many requests") and remover.retryable("error: Resend 502: bad gateway") and not remover.retryable("error: Resend 403: no")

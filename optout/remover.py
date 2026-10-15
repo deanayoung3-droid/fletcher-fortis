@@ -1,5 +1,5 @@
 """Files removals. DRY_RUN=true (default): everything goes to outbox as 'dry_run', nothing leaves the server."""
-import os, smtplib, ssl, datetime, yaml, subprocess, json, asyncio, threading  # nosec B404
+import os, re, time, smtplib, ssl, datetime, yaml, subprocess, json, asyncio, threading  # nosec B404
 import profiles
 from crypto import enc
 from email.message import EmailMessage
@@ -84,10 +84,36 @@ def _resend(frm, to, rto, subject, body, attach, ref, html=None):
         d["attachments"] = [{"filename": "signed-authorization.pdf", "content": base64.b64encode(open(attach, "rb").read()).decode()}]
     rq = urllib.request.Request("https://api.resend.com/emails", json.dumps(d).encode(), {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                                 "Idempotency-Key": ref, "User-Agent": USER_AGENT, "Accept": "application/json"})
-    try:
-        with urllib.request.urlopen(rq, timeout=30) as r: return "sent:" + json.load(r).get("id", "")  # nosec B310
-    except urllib.error.HTTPError as e: return "error: " + resend_error(e.code, e.read(2000))
-    except Exception as e: return f"error: {type(e).__name__}: {e}"[:200]
+    st = "error: not attempted"
+    for attempt in range(SEND_RETRIES + 1):   # same Idempotency-Key on every try, so a retry can never send twice
+        wait = None
+        _throttle()
+        try:
+            with urllib.request.urlopen(rq, timeout=30) as r: return "sent:" + json.load(r).get("id", "")  # nosec B310
+        except urllib.error.HTTPError as e:
+            st = "error: " + resend_error(e.code, e.read(2000))
+            if not (e.code == 429 or e.code >= 500): return st
+            try: wait = min(float((e.headers or {}).get("Retry-After") or 0), 60) or None
+            except (TypeError, ValueError): wait = None
+        except Exception as e: st = f"error: {type(e).__name__}: {e}"[:200]
+        if attempt < SEND_RETRIES: time.sleep(wait or SEND_BACKOFF[min(attempt, len(SEND_BACKOFF) - 1)])
+    return st
+
+# Resend allows 10 requests/second per team. Every send goes through one lock with a minimum gap (default 500 ms, about
+# 2 per second), so hourly batches can never burst into 429s. 429 and 5xx are retried with backoff before giving up.
+_SEND_LOCK = threading.Lock(); _LAST_SEND = [0.0]
+SEND_RETRIES = 3; SEND_BACKOFF = (2, 5, 15)
+def _throttle():
+    gap = int(os.environ.get("SEND_INTERVAL_MS") or 500) / 1000
+    with _SEND_LOCK:
+        d = _LAST_SEND[0] + gap - time.monotonic()
+        if d > 0: time.sleep(d)
+        _LAST_SEND[0] = time.monotonic()
+
+RETRYABLE = re.compile(r"^error: (Resend (429|5\d\d)|(URLError|TimeoutError|timeout|RemoteDisconnected|ConnectionResetError|ConnectionRefusedError|IncompleteRead)\b)")
+def retryable(state):
+    """True for send results worth trying again later (rate limit, Resend outage, network), not for permanent errors like 403/422."""
+    return bool(RETRYABLE.match(state or ""))
 
 # Resend's API sits behind Cloudflare, which rejects Python's default "Python-urllib" agent with 403 "error code: 1010".
 USER_AGENT = "FletcherFortis/" + (open(os.path.join(os.path.dirname(__file__), "..", "VERSION")).read().strip() if os.path.exists(os.path.join(os.path.dirname(__file__), "..", "VERSION")) else "dev") + " (+https://github.com/deanayoung3-droid/fletcher-fortis)"

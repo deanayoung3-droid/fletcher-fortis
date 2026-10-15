@@ -198,6 +198,8 @@ async def _live(p, l, site, steps):
 def run_live(listing_id):
     import remover
     c = conn(); l = c.execute("SELECT * FROM listings WHERE id=?", (listing_id,)).fetchone(); p = c.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone()
+    if l["status"] != "approved": return   # handled meanwhile (removed by the person, covered by a sibling, ...)
+    c.execute("UPDATE listings SET chain_at=? WHERE id=?", (now(), listing_id)); c.commit()   # marks a real run; queued-but-lost jobs (restart) are picked up again
     site = remover.SITE.get(l["site"], {"id": l["site"], "name": l["site"]})
     try: new, meth = asyncio.run(_live(p, l, site, plan(site)))
     except Exception as e: new, meth = "approved", None; event(c, "chain_error", type(e).__name__, p["id"], listing_id)

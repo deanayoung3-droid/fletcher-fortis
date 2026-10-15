@@ -15,10 +15,14 @@ STATUS = {"queued": ("Queued", "gray"), "blocked_auth": ("Waiting for signature"
           "acknowledged": ("Acknowledged", "blue"), "needs_info": ("Broker asked for more", "amber"), "denied": ("Denied", "red"), "completed": ("Completed", "green"),
           "covered_by_drop": ("Covered by CA DROP", "green"), "people_search": ("Scanned as people-search", "green"), "no_channel": ("No contact listed", "gray"), "failed": ("Send failed", "red")}
 
+MAX_TRIES = 5   # temporary send errors are retried on the next hourly runs, then left as failed
+
 def enabled(): return config.get("REGISTRY_REQUESTS", "true") == "true"
 def _ensure(c):
     c.execute("""CREATE TABLE IF NOT EXISTS reg_requests(id INTEGER PRIMARY KEY, person_id TEXT, broker TEXT, category TEXT, status TEXT, channel TEXT, target TEXT,
-                 outbox_id INT, stage INT DEFAULT 0, created TEXT, sent_at TEXT, updated TEXT, reply_kind TEXT, UNIQUE(person_id, broker))""")
+                 outbox_id INT, stage INT DEFAULT 0, created TEXT, sent_at TEXT, updated TEXT, reply_kind TEXT, tries INT DEFAULT 0, UNIQUE(person_id, broker))""")
+    try: c.execute("ALTER TABLE reg_requests ADD COLUMN tries INT DEFAULT 0")
+    except Exception: pass
 
 def _site(b):
     """A broker record shaped like a sites.yaml entry, so letters/remover can use it."""
@@ -50,6 +54,12 @@ def tick(limit=None):
             for r in c.execute("SELECT id, broker FROM reg_requests WHERE person_id=? AND status='queued'", (p["id"],)).fetchall():
                 if (B.get(r["broker"]) or {}).get("registries") == ["CA"]: c.execute("UPDATE reg_requests SET status='covered_by_drop', updated=? WHERE id=?", (now(), r["id"]))
     P = {p["id"]: p for p in people}
+    # sends that failed for a temporary reason (Resend 429 rate limit, 5xx, network) go back in the queue, up to MAX_TRIES
+    if not remover.DRY:
+        for r in c.execute("SELECT q.id, o.state FROM reg_requests q JOIN outbox o ON o.id=q.outbox_id WHERE q.status='failed' AND COALESCE(q.tries,0)<?", (MAX_TRIES,)).fetchall():
+            if remover.retryable(r["state"]):
+                c.execute("UPDATE reg_requests SET status='queued', tries=COALESCE(tries,0)+1, updated=? WHERE id=?", (now(), r["id"])); out["retried"] = out.get("retried", 0) + 1
+        if out.get("retried"): event(c, "registry_retry", f"{out['retried']} requests re-queued after a temporary send error (rate limit or outage)")
     for r in c.execute("SELECT * FROM reg_requests WHERE status='queued' ORDER BY id LIMIT ?", (limit,)).fetchall():
         b = B.get(r["broker"]); p = P.get(r["person_id"])
         if not b or not p: continue

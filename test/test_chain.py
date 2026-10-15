@@ -107,3 +107,24 @@ def test_live_chain_is_queued_on_the_single_worker(monkeypatch):
     monkeypatch.setattr(remover, "DRY", False); monkeypatch.setattr(remover, "can_send", lambda p: (True, ""))
     remover.approve(lid)
     assert q == [lid] and not started   # no thread per listing: a burst can never launch many Chromiums
+
+def test_lifecycle_starts_approved_chains_up_to_limit(monkeypatch):
+    """v1.3.5: approved listings are chained even when submitted_at is recent (dry-run approval, lost job after restart)."""
+    import scanjobs
+    sign("alex"); c = db.conn(); c.execute("UPDATE listings SET status='not_me' WHERE status='approved'"); c.commit()
+    ids = [listing("alex", "mockemail", "approved") for _ in range(4)]
+    c.execute("UPDATE listings SET submitted_at=? WHERE id IN (%s)" % ",".join("?" * 4), (db.now(), *ids)); c.commit()
+    q = []; monkeypatch.setattr(scanjobs, "enqueue_chain", lambda l: q.append(l) or True)
+    monkeypatch.setattr(remover, "DRY", False); monkeypatch.setattr(remover, "can_send", lambda p: (True, ""))
+    assert lifecycle.start_chains(c, limit=3) == 3 and q == ids[:3]
+    c.execute("UPDATE listings SET chain_at=? WHERE id IN (?,?,?)", (db.now(), *ids[:3])); c.commit(); q.clear()
+    assert lifecycle.start_chains(c, limit=3) == 1 and q == [ids[3]]   # chained in the last day: not again
+    monkeypatch.setitem(scanjobs.JOBS, f"chain:{ids[3]}", {"state": "queued"}); q.clear()
+    c.execute("UPDATE listings SET chain_at=NULL WHERE id=?", (ids[3],)); c.commit()
+    assert lifecycle.start_chains(c, limit=1) == 0 and not q   # already queued counts against the hourly limit
+    c.execute("UPDATE listings SET status='not_me' WHERE id IN (%s)" % ",".join("?" * 4), ids); c.commit()
+
+def test_run_live_marks_chain_at_and_skips_non_approved(monkeypatch):
+    sign("alex"); lid = listing("alex", "mockemail", "not_me")
+    chain.run_live(lid); c = db.conn()
+    assert c.execute("SELECT chain_at FROM listings WHERE id=?", (lid,)).fetchone()["chain_at"] is None

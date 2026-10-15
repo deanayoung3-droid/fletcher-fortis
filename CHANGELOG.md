@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.5] - 2026-10-14
+### Fixed
+- **Resend rate limit (429).** All email goes through one paced sender (at most about 2 per second, `SEND_INTERVAL_MS`, default 500), so hourly registry and broker batches no longer burst past Resend's 10 requests per second. 429 and 5xx answers (and network errors) are retried with backoff, honouring `Retry-After`, using the same idempotency key so a retry can never send twice. Registry requests that still failed for a temporary reason go back in the queue on the next hourly run (up to 5 tries); permanent errors such as 403 stay failed. Requests that already failed with 429 are re-queued automatically on upgrade.
+- **Approved removals were not being worked.** The hourly run only picked approved listings whose `submitted_at` was more than a day old, but approving (including approvals made before going live) sets `submitted_at` to now, and a queued chain lost in a restart left the listing hidden for a day. Listings now record `chain_at` when a chain actually starts, and each hourly run queues up to `CHAIN_PER_HOUR` approved listings that have not been chained in the last day (already-queued chains count against the limit). Chains still run one at a time on the single worker under the browser lock (1.3.3 memory safety).
+### Changed
+- Fly example config: `DRY_RUN = "false"` (live sending), matching a deployment that has gone live.
+
 ## [1.3.4] - 2026-10-14
 ### Fixed
 - **Heartbeat no longer shows old failures as live problems.** In **Email sending**, a failure older than the latest successful delivery is marked **Resolved** and folded under "N earlier errors, resolved by a later delivery"; a new status pill (Working / Failing / Nothing sent yet) follows the most recent result. The **Email delivery (7 days)** card is red only when the newest failure is newer than the last delivery, and **Errors (24 h)** no longer counts an error as open once the same part ran successfully afterwards (for example a scan error followed by a completed scan).

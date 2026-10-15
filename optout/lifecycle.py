@@ -28,9 +28,8 @@ def tick():
     for l in c.execute("SELECT * FROM listings WHERE status='manual_check'").fetchall():
         site = remover.SITE.get(l["site"], {}); p = c.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone()
         if site and p and remover.has_auth(p) and chain.blind(c, p, l, site): out["blind"] += 1
-    if not remover.DRY:   # live: re-run the method chain for removals whose channels all failed last time (at most once a day)
-        for l in c.execute("SELECT id FROM listings WHERE status='approved' AND (submitted_at IS NULL OR submitted_at < datetime('now','localtime','-1 day')) ORDER BY id LIMIT ?", (int(config.get("CHAIN_PER_HOUR") or 10),)).fetchall():
-            remover.approve(l["id"]); out["chain_retried"] = out.get("chain_retried", 0) + 1
+    if not remover.DRY:   # live: approved listings go through the method chain on the single worker, CHAIN_PER_HOUR per run
+        out["chain_started"] = start_chains(c)
     import automation
     if automation.solver_on() and not remover.DRY:   # optional CAPTCHA solver: re-try forms that were waiting on a person
         for l in c.execute("SELECT id FROM listings WHERE status='needs_human'").fetchall():
@@ -64,6 +63,22 @@ LIFECYCLE = [("Scan", "Weekly, plus after every profile edit"), ("Match", "Name,
              ("Follow up", "Reminder on day 20, escalation citing the regulator on day 45"), ("Confirm", "Re-scan shows the page is gone: Removed"),
              ("Watch", "Weekly re-check; if it reappears a new request is filed automatically")]
 
+
+def start_chains(c, limit=None):
+    """Queue up to CHAIN_PER_HOUR approved listings whose chain has not run in the last day. Gated on chain_at (set when a chain
+    actually starts on the worker), not submitted_at: approving or a lost in-memory job (restart) no longer hides a listing for a day.
+    Chains still run one at a time on the scan worker under the browser lock (1.3.3 memory safety)."""
+    import scanjobs
+    limit = limit if limit is not None else int(config.get("CHAIN_PER_HOUR") or 10)
+    busy = {k for k, j in list(scanjobs.JOBS.items()) if k.startswith("chain:") and (j or {}).get("state") in ("queued", "running")}
+    room = max(0, limit - len(busy)); n = 0
+    if not room: return 0
+    for l in c.execute("SELECT id FROM listings WHERE status='approved' AND (chain_at IS NULL OR chain_at < ?) ORDER BY COALESCE(chain_at,''), id",
+                       ((datetime.datetime.now() - datetime.timedelta(days=1)).isoformat(timespec="seconds"),)).fetchall():
+        if f"chain:{l['id']}" in busy: continue
+        if str(remover.approve(l["id"])).startswith("removal chain started"): n += 1   # consent/auth gates may keep it waiting
+        if n >= room: break
+    return n
 
 def requeue_dry(c):
     """Going live: dry-run drafts were never sent. Put them back in the queue so the real request goes out first (rate limits
