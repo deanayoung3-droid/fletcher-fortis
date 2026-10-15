@@ -109,7 +109,7 @@ def sync_replies(c):
             q = cand[0] if len(cand) == 1 else None
         if not q: continue
         st, rk = state[q["id"]]; new = REPLY[i["kind"]]
-        if RANK.get(new, 0) < RANK.get(st, 0) or (new, i["kind"]) == (st, rk): continue
+        if (st == "completed" and new != "completed") or (new, i["kind"]) == (st, rk): continue   # latest reply wins; a completed request stays completed
         state[q["id"]] = (new, i["kind"]); c.execute("UPDATE reg_requests SET status=?, reply_kind=?, updated=? WHERE id=?", (new, i["kind"], now(), q["id"])); n += 1
     c.commit(); return n
 

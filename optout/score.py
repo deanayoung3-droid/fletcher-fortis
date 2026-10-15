@@ -4,8 +4,9 @@ Everything we know about is worth points; each item keeps a share of its points 
   people-search listings (up to 60 points, scaled so a handful of listings is not as bad as dozens)
     still visible / not yet requested ........ 100% (reappeared: also counts extra)
     request sent, no confirmation yet ........ 70%  (counts a little)
-    broker confirmed by email ("removed", "no records found"), waiting for the re-scan ... 25% (counts mostly; the listing is only
+    broker confirmed deletion by email, waiting for the re-scan ... 25% (counts mostly; the listing is only
                                                marked Removed after a re-scan confirms it)
+    broker says it holds no records .......... 0% (clear)
     removed, confirmed by re-scan ............ 0%   (counts fully)
   registered data brokers (request-based, up to 15 points, by share of brokers)
     not sent yet / failed .................... 100%
@@ -24,8 +25,10 @@ LISTING_PTS, REG_PTS, UNKNOWN_EACH, UNKNOWN_MAX = 60, 15, 0.75, 10
 def _grade(v): return "ABCDEFG"[min(6, (100 - v) // 13)]
 
 def compute(c, pid):
-    confirmed = {r["listing_id"] for r in c.execute("SELECT DISTINCT listing_id FROM inbox WHERE person_id=? AND listing_id IS NOT NULL AND kind IN ('removed','not_found')", (pid,))}
-    L = {"removed": 0, "broker_confirmed": 0, "sent": 0, "open": 0, "reappeared": 0}; unknown = 0
+    replies = {}
+    for r in c.execute("SELECT listing_id, kind FROM inbox WHERE person_id=? AND listing_id IS NOT NULL AND kind IN ('removed','not_found')", (pid,)):
+        if replies.get(r["listing_id"]) != "removed": replies[r["listing_id"]] = r["kind"]   # a deletion confirmation wins over "no records"
+    L = {"removed": 0, "broker_confirmed": 0, "clear": 0, "sent": 0, "open": 0, "reappeared": 0}; unknown = 0
     for l in c.execute("SELECT id, status FROM listings WHERE person_id=?", (pid,)):
         st = l["status"]
         if st in ("not_me", "checked_clear"): continue
@@ -33,7 +36,7 @@ def compute(c, pid):
         elif st == "confirmed_removed": L["removed"] += 1
         elif st == "reappeared": L["reappeared"] += 1
         elif st in OPEN_FULL: L["open"] += 1
-        elif st in ("submitted", "pending"): L["broker_confirmed" if l["id"] in confirmed else "sent"] += 1
+        elif st in ("submitted", "pending"): L[{"removed": "broker_confirmed", "not_found": "clear"}.get(replies.get(l["id"]), "sent")] += 1
     n_l = sum(L.values()); res_l = L["open"] + L["reappeared"] + 0.7 * L["sent"] + 0.25 * L["broker_confirmed"]
     scale_l = LISTING_PTS / (n_l + 2) if n_l else 0
     R = {"clear": 0, "deleted": 0, "drop": 0, "sent": 0, "todo": 0}
@@ -51,6 +54,7 @@ def compute(c, pid):
     parts = [  # (label, count, points still lost, points recovered)
         ("Listings removed, confirmed by re-scan", L["removed"], 0, lost(L["removed"], 1, scale_l)),
         ("Listings the broker says are removed, waiting for the re-scan", L["broker_confirmed"], lost(L["broker_confirmed"], .25, scale_l), lost(L["broker_confirmed"], .75, scale_l)),
+        ("Listings where the broker says it holds no records", L["clear"], 0, lost(L["clear"], 1, scale_l)),
         ("Listings with a removal request sent, no confirmation yet", L["sent"], lost(L["sent"], .7, scale_l), lost(L["sent"], .3, scale_l)),
         ("Listings still visible (to review or being filed)", L["open"], lost(L["open"], 1, scale_l), 0),
         ("Listings that came back after removal", L["reappeared"], lost(L["reappeared"], 1, scale_l), 0),
@@ -62,7 +66,7 @@ def compute(c, pid):
         ("Sites that blocked the automated scan (unknown)", unknown, round(min(UNKNOWN_MAX, UNKNOWN_EACH * unknown), 1), 0)]
     pen = res_l * scale_l + (R["todo"] + 0.7 * R["sent"] + 0.5 * R["drop"] + 0.1 * R["deleted"]) * scale_r + min(UNKNOWN_MAX, UNKNOWN_EACH * unknown)
     v = max(0, min(100, round(100 - pen)))
-    return {"value": v, "grade": _grade(v), "open": L["open"] + L["reappeared"] + L["sent"] + L["broker_confirmed"], "removed": L["removed"],
+    return {"value": v, "grade": _grade(v), "open": L["open"] + L["reappeared"] + L["sent"] + L["broker_confirmed"], "removed": L["removed"] + L["broker_confirmed"] + R["deleted"], "clear": R["clear"] + L["clear"],
             "parts": [dict(label=a, count=b, lost=c_, gained=d) for a, b, c_, d in parts if b], "listings": L, "registry": R, "unknown": unknown}
 
 def ensure(c): c.execute("CREATE TABLE IF NOT EXISTS score_history(person_id TEXT, day TEXT, value INT, PRIMARY KEY(person_id, day))")
@@ -75,3 +79,48 @@ def change(c, pid, value):
     """(previous value, its day) from the most recent earlier day, or (None, None)."""
     ensure(c); r = c.execute("SELECT value, day FROM score_history WHERE person_id=? AND day<? ORDER BY day DESC LIMIT 1", (pid, now()[:10])).fetchone()
     return (r["value"], r["day"]) if r else (None, None)
+
+
+# ---------- shared removal counts (home tile, family cards, person page and score all read these) ----------
+FOUND_EXCLUDE = ("not_me", "manual_check", "checked_clear")
+CONTACTED = ("sent", "acknowledged", "needs_info", "denied", "completed")
+
+def _reg_reply_dates(c, pid=None):
+    """{reg_request id: date of the first broker reply that confirmed deletion / no records}, matched like regreq.sync_replies."""
+    try: reqs = c.execute("SELECT id, person_id, target, outbox_id FROM reg_requests WHERE status='completed'" + (" AND person_id=?" if pid else ""), (pid,) if pid else ()).fetchall()  # nosec B608
+    except Exception: return {}
+    by_oid = {r["outbox_id"]: r["id"] for r in reqs if r["outbox_id"]}; by_addr = {}
+    for r in reqs: by_addr.setdefault((r["person_id"], (r["target"] or "").lower()), []).append(r["id"])
+    out = {}
+    for i in c.execute("SELECT i.ts, i.outbox_id, o.person_id, o.to_addr FROM inbox i JOIN outbox o ON o.id=i.outbox_id WHERE i.kind IN ('removed','not_found') ORDER BY i.ts"):
+        q = by_oid.get(i["outbox_id"])
+        if not q:
+            cand = by_addr.get((i["person_id"], (i["to_addr"] or "").lower())) or []; q = cand[0] if len(cand) == 1 else None
+        if q and q not in out: out[q] = (i["ts"] or "")[:10]
+    return out
+
+def removals(c, pid=None, days=12):
+    """Removed = verified by re-scan (listing status confirmed_removed) + confirmed by the broker by email (people-search listings still
+    waiting for their re-scan, and registered brokers that confirmed deletion). 'No records found' is shown separately as clear: nothing
+    was removed, but nothing is exposed there either. Denominator = exposures found + registered brokers contacted that may hold data."""
+    w = " AND person_id=?" if pid else ""; a = (pid,) if pid else ()
+    found = c.execute(f"SELECT COUNT(*) FROM listings WHERE status NOT IN {FOUND_EXCLUDE}" + w, a).fetchone()[0]  # nosec B608
+    verified = {r["id"]: (r["confirmed_at"] or "")[:10] for r in c.execute("SELECT id, confirmed_at FROM listings WHERE status='confirmed_removed'" + w, a)}  # nosec B608
+    lconf, lclear = {}, {}
+    for r in c.execute("SELECT i.listing_id, i.kind, MIN(i.ts) ts FROM inbox i JOIN listings l ON l.id=i.listing_id WHERE i.kind IN ('removed','not_found') AND l.status IN ('submitted','pending')" + (" AND l.person_id=?" if pid else "") + " GROUP BY i.listing_id, i.kind", a):  # nosec B608
+        (lconf if r["kind"] == "removed" else lclear).setdefault(r["listing_id"], (r["ts"] or "")[:10])
+    for k in lconf: lclear.pop(k, None)
+    try: regs = c.execute("SELECT id, status, reply_kind, updated FROM reg_requests WHERE status IN %s" % (CONTACTED,) + w, a).fetchall()  # nosec B608
+    except Exception: regs = []
+    dates = _reg_reply_dates(c, pid) if regs else {}
+    rconf = {r["id"]: dates.get(r["id"]) or (r["updated"] or "")[:10] for r in regs if r["status"] == "completed" and r["reply_kind"] != "not_found"}
+    rclear = {r["id"]: dates.get(r["id"]) or (r["updated"] or "")[:10] for r in regs if r["status"] == "completed" and r["reply_kind"] == "not_found"}
+    contacted = len(regs)
+    broker = len(lconf) + len(rconf); removed = len(verified) + broker; clear = len(lclear) + len(rclear)
+    denom = found + contacted - len(rclear)
+    today = datetime.date.fromisoformat(now()[:10]); span = [(today - datetime.timedelta(days=days - 1 - i)).isoformat() for i in range(days)]
+    ds = sorted(d for d in list(verified.values()) + list(lconf.values()) + list(rconf.values()) if d)
+    series = [sum(1 for d in ds if d <= day) for day in span]   # cumulative removed per day, backfilled from re-scan and reply dates
+    return {"removed": removed, "verified": len(verified), "broker": broker, "broker_listings": len(lconf), "broker_registry": len(rconf),
+            "clear": clear, "found": found, "contacted": contacted, "denom": denom, "pct": round(100 * removed / denom) if denom else 0,
+            "days": span, "series": series}

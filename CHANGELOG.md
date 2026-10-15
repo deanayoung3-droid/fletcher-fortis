@@ -2,6 +2,15 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.8] - 2026-10-15
+
+### Fixed
+- **Removed stuck at 0.** The home "Removed" tile only counted listings verified by a re-scan, so broker emails confirming deletion never showed. It now counts re-scan-verified removals plus deletions confirmed by the broker (people-search listings and registered brokers), with the split in the subtext ("2 verified by re-scan · 7 confirmed by broker"). The percentage is out of exposures found plus registered brokers contacted, and "no records found" is shown as its own clear count. A listing's status still only becomes Removed after a re-scan.
+- **Flat sparkline.** The Removed tile's sparkline is the cumulative removed count per day for the last 12 days, backfilled from re-scan and reply dates.
+- **Counts out of sync.** Home tile, family cards, person page and privacy score read one shared count (`score.removals`), and a new broker reply updates the registry request and today's score snapshot as soon as the email is processed, not on the next hourly run. Weekly "Broker confirmed" chart counts one point per request (brokers often send two emails).
+- **Replies left as "other" or misclassified.** The classifier ignores our own quoted letter and folds line wraps. New wording for "no records found", and "we don't take requests by email, use our web form / portal" is now Needs info. "Any additional information" in a ticket auto-reply is no longer Needs info. Stored replies are re-classified once on upgrade.
+- **Registry reply status.** The latest broker reply sets the request status (an acknowledgement after a "use our form" reply moves it to Acknowledged); a completed request stays completed.
+
 ## [1.3.7] - 2026-10-15
 
 ### Fixed

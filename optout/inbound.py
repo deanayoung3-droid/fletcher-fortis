@@ -13,11 +13,16 @@ URL = re.compile(r"https?://[^\s<>\"')\]]+", re.I)
 VERIFY_URL = re.compile(r"confirm|verif|optout|opt-out|opt_out|remov|suppress|unlist|privacy|token|activate", re.I)
 KINDS = [("not_found", re.compile(r"(unable|not able) to (find|locate)( or verify)? (a match|any (records?|data|information|personal))|(did|do|does) not (find|have|hold|possess) any (records?|data|(personal )?information)|"
                                r"(did not|could not|couldn't) find any (records?|data|information|match)|no (records?|data|personal information|matching records?) (was |were )?(found|located)|"
-                               r"do not have your (data|information)|nothing (for us )?to delete|no longer (possesses|holds|has) (any )?personal information", re.I)),
+                               r"do not have your (data|information)|nothing (for us )?to delete|no longer (possesses|holds|has) (any )?personal information|"
+                               r"(did not|could not|were unable to) (identify|locate) any (personal )?(data|information|records?)|no responsive personal (data|information)", re.I)),
          ("removed", re.compile(r"(has|have) been (removed|deleted|suppressed|processed)|removal (is )?complete|request (has been |was )?(completed|fulfilled)|successfully (removed|opted)|(right|request)[\w\s-]{0,60} has been completed|"
                              r"has received and fulfilled|added (you |the information provided |this information )?to our (opt.?out|suppression|do not sell) lists?|marked (this|your) request as completed", re.I)),
          ("verify", re.compile(r"(confirm|verify) (your )?(request|email|opt.?out|removal)|click (the|this) link|verification link", re.I)),
-         ("need_info", re.compile(r"verify your identity|additional information|unable to (locate|verify)|need more information|government.issued", re.I)),
+         ("need_info", re.compile(r"verify your identity|(need|require|provide|send|submit|request)( us)?( some| the| any| more)? additional information|unable to (locate|verify)|need more information|government.issued|"
+                               # "we don't take requests by email, use our web form / portal": a person has to submit it there
+                               r"(does|do) not accept (privacy )?requests (via|by) e-?mail|requests must originate via|(access|through|via|use) our (submission |privacy |online |request )?portal|"
+                               r"(please )?(use|submit (your|a|the|all)?\s*(privacy |data )?requests? (through|via|using|at|here)|visit) (either )?(our|the|this)? ?(online |interactive |designated )?(privacy |data )?(request |rights |subject )?(web ?form|form|portal|self-service|privacy center)|"
+                               r"(submit|make) (your|a|the) (privacy |data |deletion )?request (here|through|via|using|at|in) |(complete|fill out|fill in) (the|our) (web ?|online |request )?form", re.I)),
          ("denied", re.compile(r"(cannot|can't|will not|unable to) (honor|process|comply)|request (is |was )?denied|not a california resident", re.I)),
          ("ack", re.compile(r"(we|have) received your|request (has been )?received|ticket|case number|will (consider and )?(review|process)|provide a response within|confirms that .{0,60} (has )?received", re.I))]
 
@@ -105,9 +110,28 @@ def relink(c):
         if (pid, oid, kind) != (r["person_id"], r["outbox_id"], r["kind"]): c.execute("UPDATE inbox SET person_id=?, outbox_id=?, kind=? WHERE id=?", (pid, oid, kind, r["id"]))
     c.commit(); return nl, nk
 
+QUOTED = re.compile(r"(^|\n)\s*(On .{0,300}?wrote:|-{2,} ?Original Message ?-{2,}|From: .{0,300}?\n\s*(Sent|Date): |>\s*To .{2,120}? privacy team)", re.S)
+
+def reply_text(body):
+    """The broker's own words: drop our quoted letter (it contains 'delete', 'opt out' etc.) and fold line wraps, so
+    'unable to find\na match' still matches."""
+    body = (body or "")[:20000]; m = QUOTED.search(body)
+    if m and m.start() > 20: body = body[:m.start()]
+    body = "\n".join(l for l in body.splitlines() if not l.lstrip().startswith(">"))
+    return re.sub(r"\s+", " ", body)
+
+def refresh(c, pid):
+    """Apply a new reply right away (not only on the hourly run): registry request status, then today's score snapshot, so the
+    Removed tile, family cards, person page and score all move together."""
+    try:
+        import regreq, score
+        regreq._ensure(c); regreq.sync_replies(c); score.record(c, pid, score.compute(c, pid)["value"])
+    except Exception as e: event(c, "reply_refresh_error", f"{type(e).__name__}: {e}"[:200], pid)
+
 def classify(subject, body):
+    text = re.sub(r"\s+", " ", subject or "") + "\n" + reply_text(body)[:8000]
     for k, rx in KINDS:
-        if rx.search(subject + "\n" + body[:8000]): return k
+        if rx.search(text): return k
     return "other"
 
 def _public_https(u):
@@ -181,4 +205,5 @@ def handle(c, raw: bytes, clicker=_click):
     event(c, "broker_reply_" + kind, f"{frm} | {subj}" + (" | " + "; ".join(clicked) if clicked else ""), pid, lid)
     if kind in ("removed", "not_found") and lid: event(c, "broker_reports_removed", "will be marked Removed only after the next re-scan confirms it", pid, lid)
     c.commit()
+    if pid: refresh(c, pid)
     return {"person": pid, "listing": lid, "outbox": oid, "site": sorted(site) if site else None, "kind": kind, "clicked": clicked, "status": new if lid else None}

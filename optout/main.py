@@ -293,12 +293,16 @@ def _weeks(pid=None, n=12):
             if 0 <= k < n: out[k] += 1
         return out
     conf = [0] * n   # broker confirmations by email (removed / no records found), people-search listings and registry brokers alike
-    for r in C.execute("SELECT substr(ts,1,10) d FROM inbox WHERE kind IN ('removed','not_found')" + (" AND person_id=?" if pid else " AND person_id IS NOT NULL"), (pid,) if pid else ()):  # nosec B608
+    # one point per request: brokers often send two confirmations (erasure + opt-out) for the same request
+    for r in C.execute("SELECT substr(MIN(ts),1,10) d FROM inbox WHERE kind='removed'" + (" AND person_id=?" if pid else " AND person_id IS NOT NULL") + " GROUP BY COALESCE(outbox_id, -listing_id, -1000000-id)", (pid,) if pid else ()):  # nosec B608
         try: k = (datetime.date.fromisoformat(r["d"]) - ws[0]).days // 7
         except Exception: continue
         if 0 <= k < n: conf[k] += 1
     return [w.strftime("%b %-d") for w in ws], bucket("first_seen", "AND status NOT IN ('not_me','manual_check','checked_clear')"), bucket("confirmed_at"), conf
 T.env.globals.update(chart=charts.chart, weeks=_weeks)
+def _removals(pid=None):
+    import score as _sc; return _sc.removals(C, pid)
+T.env.globals.update(removals=_removals, zip=zip)
 T.env.globals.update(score=_score, months=_months, OPEN=OPEN, today=lambda: datetime.date.today())
 T.env.globals.update(fam_list=_people, hq=_queue, heat=_heat, domain=_domain, pstats=lambda pid=None: stats(pid))
 import math; T.env.filters.update(ord=ord, cos=math.cos, sin=math.sin); T.env.tests["startingwith"] = lambda s, p: str(s).startswith(p)

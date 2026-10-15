@@ -7,7 +7,7 @@ import remover
 
 STAGE = {0: "Request", 1: "Follow-up", 2: "Escalation"}
 DIGEST = ("weekly", "weekly_test", "summary", "onboarding", "mail", "setup_test")
-IN_PILL = {"removed": ("Says removed", "green", "done"), "verify": ("Verification", "blue", "progress"), "ack": ("Acknowledged", "blue", "progress"),
+IN_PILL = {"removed": ("Says removed", "green", "done"), "not_found": ("No records found", "green", "done"), "verify": ("Verification", "blue", "progress"), "ack": ("Acknowledged", "blue", "progress"),
            "need_info": ("Needs info", "purple", "needs"), "denied": ("Denied", "red", "needs"), "other": ("Reply", "gray", "pending")}
 BUCKETS = [("all", "All"), ("needs", "Needs you"), ("pending", "Pending"), ("progress", "In progress"), ("done", "Completed")]
 LISTING_DONE = ("confirmed_removed", "checked_clear", "not_me")

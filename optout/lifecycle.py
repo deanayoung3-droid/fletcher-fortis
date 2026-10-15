@@ -20,6 +20,7 @@ def tick():
         if (c.execute("SELECT v FROM app_meta WHERE k='inbox_relinked'").fetchone() or {}).get("v") != _db.app_version():
             nl, nk = inbound.relink(c); c.execute("INSERT INTO app_meta(k,v) VALUES('inbox_relinked',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (_db.app_version(),)); c.commit()
             if nl or nk: event(c, "inbox_relinked", f"{nl} replies linked to their request, {nk} re-classified")
+            import regreq; regreq.sync_replies(c)
     except Exception as e: event(c, "relink_error", f"{type(e).__name__}: {e}"[:200])
     auto = config.get("AUTO_APPROVE", "false") == "true"; amin = int(config.get("AUTO_APPROVE_MIN", "85") or 85)
     if auto:

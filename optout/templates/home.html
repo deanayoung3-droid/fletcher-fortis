@@ -2,7 +2,7 @@
 {% set A = all %}{% set found = (A.values()|sum) - A.get('not_me',0) - A.get('manual_check',0) - A.get('checked_clear',0) %}{% set pend = A.get('candidate',0) + A.get('blocked_auth',0) %}
 {% set prog = A.get('approved',0) + A.get('submitted',0) + A.get('pending',0) + A.get('needs_human',0) %}{% set fs = score() %}{% set mo = months() %}{% set hm = heat() %}
 {% set tg = namespace(id=people[0].id if people else '') %}{% for p in people|reverse %}{% if stats[p.id].get('candidate') %}{% set tg.id = p.id %}{% endif %}{% endfor %}
-{% set rv = '/person/' ~ tg.id if tg.id else '/add' %}{% set rate = (100 * A.get('confirmed_removed',0) / found)|round|int if found else 0 %}
+{% set rv = '/person/' ~ tg.id if tg.id else '/add' %}{% set RM = removals() %}{% set rate = RM.pct %}
 <div class="flex flex-wrap items-end gap-4 mb-5 px-1 reveal-me">
  <div><h1 class="text-[40px] leading-[1.05] font-medium tracking-[-0.045em]">Overview</h1>
  <p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-1.5">{{people|length}} people monitored · <span class="font-mono text-[12.5px]">{{found}}</span> exposures found · next scan {{next_scan().strftime('%a %b %-d')}}</p></div>
@@ -25,12 +25,13 @@
    <div class="text-[44px] font-medium num leading-none mt-3" data-count="{{pend}}">{{pend}}</div><div class="text-[12.5px] text-white/85 mt-2">{{A.get('blocked_auth',0)}} waiting on signed authorization</div></div>
   <a href="{{rv}}" class="group flex items-center justify-between rounded-[16px] bg-white text-ink px-3.5 py-2.5 text-[13.5px] font-medium whitespace-nowrap">{{A.get('candidate',0)}} listings<span class="btn-p !h-8 !px-3.5 !text-[12.5px] group-hover:gap-2.5">Review{{icon('chev','w-3.5 h-3.5')}}</span></a>
  </div>
- {% for k, lab, v, sub, col in [('found','Exposures found',found,'across '~(SITE|length)~' broker sites','text-stone-800 dark:text-neutral-200'),('prog','Removal in progress',prog,(A.get('needs_human',0))~' need a human','text-accent-500'),('rm','Removed',A.get('confirmed_removed',0),rate~'% of everything found','text-emerald-500'),('re','Reappeared',A.get('reappeared',0),'came back after removal','text-rose-500')] %}
+ {% for k, lab, v, sub, col in [('found','Exposures found',found,'across '~(SITE|length)~' broker sites','text-stone-800 dark:text-neutral-200'),('prog','Removal in progress',prog,(A.get('needs_human',0))~' need a human','text-accent-500'),('rm','Removed',RM.removed,RM.verified~' verified by re-scan · '~RM.broker~' confirmed by broker','text-emerald-500'),('re','Reappeared',A.get('reappeared',0),'came back after removal','text-rose-500')] %}
  <div class="tile !p-4 flex flex-col justify-between min-h-[140px]">
   <div class="text-[13px] text-stone-500 dark:text-neutral-400">{{lab}}</div>
   <div class="flex items-end justify-between"><span class="text-[44px] font-medium num leading-none {{'text-rose-600 dark:text-rose-400' if k=='re' and v}}" data-count="{{v}}">{{v}}</span>
-   <span class="flex items-end gap-[3px] h-9 {{col}}">{% for d, n in hm[-12:] %}<i class="grow w-[4px] rounded-[2px] {{'hatch opacity-40' if not loop.last else 'bg-current'}}" style="--i:{{loop.index}};height:{{ [7, n*9]|max }}px;max-height:36px"></i>{% endfor %}</span></div>
-  <div class="text-[12px] text-stone-500 dark:text-neutral-500">{{sub}}</div></div>{% endfor %}
+   {% if k == 'rm' %}{% set top = [RM.series|max, 1]|max %}<span class="flex items-end gap-[3px] h-9 {{col}}" data-removed-spark title="Removed so far, by day (re-scan and broker replies)">{% for d, n in zip(RM.days, RM.series) %}<i class="grow w-[4px] rounded-[2px] {{'bg-current' if n else 'hatch opacity-40'}}" style="--i:{{loop.index}};height:{{ [4, (36 * n / top)|round|int]|max }}px" title="{{d}}: {{n}}"></i>{% endfor %}</span>
+   {% else %}<span class="flex items-end gap-[3px] h-9 {{col}}">{% for d, n in hm[-12:] %}<i class="grow w-[4px] rounded-[2px] {{'hatch opacity-40' if not loop.last else 'bg-current'}}" style="--i:{{loop.index}};height:{{ [7, n*9]|max }}px;max-height:36px"></i>{% endfor %}</span>{% endif %}</div>
+  <div class="text-[12px] text-stone-500 dark:text-neutral-500" {{'data-removed-sub' if k == 'rm'}}>{{sub}}{% if k == 'rm' %}<br><span class="text-stone-400">{{RM.pct}}% of {{RM.denom}} found or contacted{% if RM['clear'] %} · {{RM['clear']}} no records (clear){% endif %}</span>{% endif %}</div></div>{% endfor %}
 </div>
 
 <div class="grid lg:grid-cols-12 gap-3 mb-3">
@@ -42,7 +43,7 @@
    <div class="relative mt-5 h-2.5 rounded-full bg-stone-100 dark:bg-white/[.06] overflow-hidden"><i class="absolute inset-y-0 left-0 rounded-full text-accent-500 hatch bg-accent-100 dark:bg-accent-900/40" style="width:{{fs.value}}%"></i></div>
    <div class="flex justify-between font-mono text-[10.5px] text-stone-400 mt-1.5"><span>0</span><span>Target 80</span><span>100</span></div></div>
   <div class="mt-auto px-5 pb-4 divide-y divide-stone-100 dark:divide-white/[.07] text-[13px]">
-   {% for t, v, d, c in [('Exposures found', found, A.get('candidate',0) ~ ' new', 'amber'), ('Removed', A.get('confirmed_removed',0), rate ~ '%', 'green'), ('Reappeared', A.get('reappeared',0), 're-check weekly', 'red' if A.get('reappeared') else 'gray')] %}
+   {% for t, v, d, c in [('Exposures found', found, A.get('candidate',0) ~ ' new', 'amber'), ('Removed', RM.removed, rate ~ '%', 'green'), ('Reappeared', A.get('reappeared',0), 're-check weekly', 'red' if A.get('reappeared') else 'gray')] %}
    <div class="flex items-center py-2.5"><span class="text-stone-500">{{t}}</span><span class="ml-auto font-semibold num mr-2.5">{{v}}</span>{{pill(d, c)}}</div>{% endfor %}</div>
  </section>
 
@@ -57,7 +58,7 @@
    {% if alerts %}<div class="mt-4 text-[38px] font-medium num leading-none">{{alerts|length}} listing{{'s' if alerts|length != 1}}</div>
    <div class="text-[16px] font-medium tracking-[-0.02em] leading-snug mt-2">{{SITE.get(alerts[0].site,{}).get('name',alerts[0].site)}} relisted {{alerts[0].full_name.split()[0]}}</div>
    <div class="text-[12.5px] text-white/75 mt-1">It was confirmed removed, then came back on the last scan.</div>
-   {% else %}<div class="mt-4 text-[38px] font-medium num leading-none">{{rate}}%</div><div class="text-[16px] font-medium tracking-[-0.02em] mt-2">of exposures removed</div><div class="text-[12.5px] text-white/75 mt-1">Every removal is re-checked weekly.</div>{% endif %}
+   {% else %}<div class="mt-4 text-[38px] font-medium num leading-none">{{rate}}%</div><div class="text-[16px] font-medium tracking-[-0.02em] mt-2">removed or confirmed deleted</div><div class="text-[12.5px] text-white/75 mt-1">Broker confirmations are re-checked by the next scan where the site can be scanned.</div>{% endif %}
    <span class="mt-auto pt-4"><span class="inline-flex items-center gap-1.5 rounded-full bg-white text-ink text-[12.5px] font-medium px-3.5 py-2 transition group-hover:gap-2.5">{{'Review listing' if alerts else 'Review exposures'}}{{icon('chev','w-3.5 h-3.5')}}</span></span></a>
  </div>
 </div>

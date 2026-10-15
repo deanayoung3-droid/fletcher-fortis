@@ -98,7 +98,7 @@ def test_platform_reply_without_tag_is_matched_and_feeds_registry_status():
     clear(); sign("alex"); oid = out("alex", "dsr@cove.invalid", "sent"); rid = reg("alex", "cove", "sent", oid)
     res = inbound.handle(db.conn(), PLATFORM.replace("{pid}", "alex").encode())
     assert res["person"] == "alex" and res["outbox"] == oid and res["kind"] == "removed"
-    assert regreq.sync_replies(db.conn()) == 1
+    assert regreq.sync_replies(db.conn()) == 0   # v1.3.8: handle() already applied it
     assert db.conn().execute("SELECT status, reply_kind FROM reg_requests WHERE id=?", (rid,)).fetchone() == {"status": "completed", "reply_kind": "removed"}
     c = db.conn(); c.execute("INSERT INTO inbox(ts,person_id,outbox_id,kind) VALUES(?,?,?,?)", (db.now(), "alex", oid, "ack")); c.commit()
     regreq.sync_replies(db.conn()); assert db.conn().execute("SELECT status FROM reg_requests WHERE id=?", (rid,)).fetchone()["status"] == "completed"   # no downgrade

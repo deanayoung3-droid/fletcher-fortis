@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% from "_ui.html" import icon, pill, label with context %}{% block title %}Calls & mail{% endblock %}{% block body %}
 {% macro empty(ic, t, sub) %}<div class="py-10 px-6 text-center"><span class="mx-auto w-11 h-11 rounded-2xl bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-400">{{icon(ic,'w-5 h-5')}}</span><div class="text-[14px] font-semibold mt-3">{{t}}</div><div class="text-[12.5px] text-stone-500 dark:text-neutral-400 mt-1 max-w-sm mx-auto">{{sub}}</div></div>{% endmacro %}
-{% set KIND = {'removed':('Says removed','green'),'verify':('Verification link','blue'),'need_info':('Needs info','purple'),'denied':('Denied','red'),'ack':('Acknowledged','gray'),'other':('Other','gray'),'junk':('Junk','gray'),'phishing':('Phishing','red')} %}
+{% set KIND = {'removed':('Says removed','green'),'not_found':('No records found','green'),'verify':('Verification link','blue'),'need_info':('Needs info','purple'),'denied':('Denied','red'),'ack':('Acknowledged','gray'),'other':('Other','gray'),'junk':('Junk','gray'),'phishing':('Phishing','red')} %}
 <div class="flex flex-wrap items-end gap-4 mb-5 px-1"><div><h1 class="text-[36px] leading-[1.05] font-medium tracking-[-0.045em]">Calls &amp; mail</h1>
  <p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-1.5">Broker replies to <span class="font-mono text-[12.5px]">{{FROM_ADDRESS}}</span>, junk triage and screened calls. Nothing is ever deleted.</p></div>
  <a href="/admin/go-live" class="btn ml-auto">{{icon('check')}}Go-live checklist</a></div>
