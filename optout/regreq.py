@@ -13,7 +13,8 @@ ACTIVE = ("sent", "dry_run", "acknowledged")
 DONE = ("completed", "covered_by_drop", "people_search")
 STATUS = {"queued": ("Queued", "gray"), "blocked_auth": ("Waiting for signature", "amber"), "sent": ("Request sent", "blue"), "dry_run": ("Written (dry run)", "gray"),
           "acknowledged": ("Acknowledged", "blue"), "needs_info": ("Broker asked for more", "amber"), "denied": ("Denied", "red"), "completed": ("Completed", "green"),
-          "covered_by_drop": ("Covered by CA DROP", "green"), "people_search": ("Scanned as people-search", "green"), "no_channel": ("No contact listed", "gray"), "failed": ("Send failed", "red")}
+          "covered_by_drop": ("Covered by CA DROP", "green"), "people_search": ("Scanned as people-search", "green"), "no_channel": ("No contact listed", "gray"), "failed": ("Send failed", "red"),
+          "form_queued": ("Web form queued", "blue"), "needs_human": ("Needs you: web form", "amber")}
 
 MAX_TRIES = 5   # temporary send errors are retried on the next hourly runs, then left as failed
 
@@ -21,8 +22,10 @@ def enabled(): return config.get("REGISTRY_REQUESTS", "true") == "true"
 def _ensure(c):
     c.execute("""CREATE TABLE IF NOT EXISTS reg_requests(id INTEGER PRIMARY KEY, person_id TEXT, broker TEXT, category TEXT, status TEXT, channel TEXT, target TEXT,
                  outbox_id INT, stage INT DEFAULT 0, created TEXT, sent_at TEXT, updated TEXT, reply_kind TEXT, tries INT DEFAULT 0, UNIQUE(person_id, broker))""")
-    try: c.execute("ALTER TABLE reg_requests ADD COLUMN tries INT DEFAULT 0")
-    except Exception: pass
+    for col in ("tries INT DEFAULT 0", "reply_id INT"):
+        try: c.execute("ALTER TABLE reg_requests ADD COLUMN " + col)
+        except Exception: pass
+    import regforms; regforms.ensure(c)
 
 def _site(b):
     """A broker record shaped like a sites.yaml entry, so letters/remover can use it."""
@@ -73,8 +76,11 @@ def tick(limit=None):
         if st == "failed" and oid and remover.quota_hit((c.execute("SELECT state FROM outbox WHERE id=?", (oid,)).fetchone() or {}).get("state")):
             event(c, "registry_paused", "Resend daily sending quota reached; the rest of the queue waits for the next hourly run"); break
     out["replies"] = sync_replies(c)
+    try:
+        import regforms; out.update(regforms.tick(c))
+    except Exception as e: event(c, "registry_form_error", f"{type(e).__name__}: {e}"[:200])
     fu, es = int(config.get("FOLLOWUP_DAYS") or 20), int(config.get("ESCALATE_DAYS") or 45)
-    for r in c.execute("SELECT * FROM reg_requests WHERE status IN ('sent','dry_run','acknowledged') AND sent_at IS NOT NULL AND (status<>'dry_run' OR ?)", (1 if remover.DRY else 0,)).fetchall():
+    for r in c.execute("SELECT * FROM reg_requests WHERE status IN ('sent','dry_run','acknowledged') AND sent_at IS NOT NULL AND COALESCE(channel,'')<>'form' AND (status<>'dry_run' OR ?)", (1 if remover.DRY else 0,)).fetchall():
         d = (datetime.datetime.now() - datetime.datetime.fromisoformat(r["sent_at"][:19])).days
         stage = 2 if d >= es and r["stage"] < 2 else 1 if fu <= d < es and r["stage"] < 1 else 0
         if not stage or r["broker"] not in B or r["person_id"] not in P: continue
@@ -94,29 +100,35 @@ def fair_batch(c, limit):
 
 # broker reply kind -> request status, and how far along each status is (a later, weaker reply never downgrades a request)
 REPLY = {"removed": "completed", "not_found": "completed", "ack": "acknowledged", "verify": "acknowledged", "need_info": "needs_info", "denied": "denied"}
-RANK = {"queued": 0, "failed": 0, "sent": 1, "acknowledged": 2, "needs_info": 3, "denied": 3, "completed": 4}
+RANK = {"queued": 0, "failed": 0, "form_queued": 1, "needs_human": 3, "sent": 1, "acknowledged": 2, "needs_info": 3, "denied": 3, "completed": 4}
 def sync_replies(c):
     """Apply broker replies (inbound.py links them to the outbox row they answer) to the registry requests, oldest first.
     Replies to a follow-up count too: any registry email to the request's address for that person maps to the request."""
-    reqs = c.execute("SELECT id, person_id, target, outbox_id, status, reply_kind FROM reg_requests WHERE outbox_id IS NOT NULL").fetchall()
+    reqs = c.execute("SELECT id, person_id, target, outbox_id, status, reply_kind, reply_id FROM reg_requests WHERE outbox_id IS NOT NULL").fetchall()
     by_oid = {r["outbox_id"]: r for r in reqs}; by_addr = {}
     for r in reqs: by_addr.setdefault((r["person_id"], (r["target"] or "").lower()), []).append(r)
-    n = 0; state = {r["id"]: (r["status"], r["reply_kind"]) for r in reqs}
+    n = 0; state = {r["id"]: (r["status"], r["reply_kind"]) for r in reqs}; seen = {r["id"]: r["reply_id"] or 0 for r in reqs}
     for i in c.execute("SELECT i.id, i.kind, i.outbox_id, o.person_id, o.to_addr FROM inbox i JOIN outbox o ON o.id=i.outbox_id WHERE i.kind IN (%s) ORDER BY i.id" % ",".join("?" * len(REPLY)), tuple(REPLY)).fetchall():
         q = by_oid.get(i["outbox_id"])
         if not q:
             cand = by_addr.get((i["person_id"], (i["to_addr"] or "").lower())) or []
             q = cand[0] if len(cand) == 1 else None
-        if not q: continue
+        if not q or i["id"] <= seen[q["id"]]: continue   # each reply is applied once (a web-form step that followed it is not undone)
+        seen[q["id"]] = i["id"]; c.execute("UPDATE reg_requests SET reply_id=? WHERE id=?", (i["id"], q["id"]))
         st, rk = state[q["id"]]; new = REPLY[i["kind"]]
         if (st == "completed" and new != "completed") or (new, i["kind"]) == (st, rk): continue   # latest reply wins; a completed request stays completed
         state[q["id"]] = (new, i["kind"]); c.execute("UPDATE reg_requests SET status=?, reply_kind=?, updated=? WHERE id=?", (new, i["kind"], now(), q["id"])); n += 1
     c.commit(); return n
 
+def _form(c, b):
+    import regforms; return regforms.form_url(c, b["id"])
+
 def send(c, p, b, stage, sent_at=None):
     """Email when the registry lists an address; otherwise record the web form for the form filler (DRY_RUN: recorded only)."""
     import letters, profiles
     site = _site(b)
+    if not remover.DRY and (stage == 0 and (_form(c, b) or not b.get("email"))):   # broker takes requests by web form only
+        return ("form_queued" if (_form(c, b) or b.get("optout_url")) else "needs_human"), None
     if b.get("email"):
         subj, text, html = letters.build(p, profiles.get(p), site, [], agent=bool(p["needs_auth"]), reply_to=remover.reply_to(p), stage=stage, sent_at=sent_at, category=b.get("category"))
         st = remover.send_email(c, p, b["email"], subj, text, remover.auth_file(p) if p["needs_auth"] else None, None, html=html, stage=stage, channel="registry_email")

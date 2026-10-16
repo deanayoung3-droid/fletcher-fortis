@@ -41,6 +41,14 @@ def enqueue_chain(lid):
         JOBS[k] = {"state": "queued", "why": "chain", "queued_at": _ts()}
     _Q.put((("chain", lid), "chain")); _ensure(); return True
 
+def enqueue_regform(rid):
+    """Queue a live web-form attempt for one registry request (regforms.run). Same worker and BROWSER lock."""
+    k = f"regform:{rid}"
+    with _L:
+        if (JOBS.get(k) or {}).get("state") in ("queued", "running"): return False
+        JOBS[k] = {"state": "queued", "why": "regform", "queued_at": _ts()}
+    _Q.put((("regform", rid), "regform")); _ensure(); return True
+
 def _ensure():
     if _W[0] and _W[0].is_alive(): return
     _W[0] = threading.Thread(target=_loop, name="scan-worker", daemon=True); _W[0].start()
@@ -58,6 +66,14 @@ def _loop():
                 import chain
                 with BROWSER: chain.run_live(pid[1])
                 _update(k, state="done", finished=_ts())
+            except Exception as e: _update(k, state="error", error=type(e).__name__, finished=_ts())
+            continue
+        if isinstance(pid, tuple) and pid[0] == "regform":
+            k = f"regform:{pid[1]}"; _update(k, state="running", started=_ts())
+            try:
+                import regforms
+                with BROWSER: res = regforms.run(pid[1])
+                _update(k, state="done", finished=_ts(), result=res)
             except Exception as e: _update(k, state="error", error=type(e).__name__, finished=_ts())
             continue
         if isinstance(pid, tuple) and pid[0] == "shot":

@@ -100,5 +100,6 @@ def test_history_is_recomputed_with_the_new_formula(monkeypatch):
     h = dict(score.history(db.conn(), "alex"))
     assert h["2026-10-12"] != 99 and h["2026-10-12"] < h["2026-10-13"] and h["2026-10-15"] == val()   # the confirmation on Oct 13 shows up as a step
     monkeypatch.undo()
-    c = db.conn(); c.execute("UPDATE score_history SET day=date(day, '+' || (julianday('now') - julianday('2026-10-15')) || ' days')"); c.commit()
+    c = db.conn(); rows = c.execute("SELECT person_id, date(day, '+' || CAST(julianday(date('now','localtime')) - julianday('2026-10-15') AS INT) || ' days') d, value FROM score_history").fetchall()
+    c.execute("DELETE FROM score_history"); c.executemany("INSERT INTO score_history VALUES(?,?,?)", [(r["person_id"], r["d"], r["value"]) for r in rows]); c.commit()   # move the history to end today
     t = admin().get("/person/alex").text; assert "data-score-history" in t and "Score formula updated" in t

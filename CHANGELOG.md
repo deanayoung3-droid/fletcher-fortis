@@ -2,6 +2,15 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.10] - 2026-10-16
+
+### Added
+- **Web forms for registry brokers that don't take email.** A broker's form URL is saved on the broker (`broker_forms`), from `brokers/form_overrides.yaml` (LeadPost: https://app.leadpost.com/PrivacyRequest) or learned from a "Needs info" reply that points to a web form or portal (the reply's own words or its links; policy and terms pages are ignored). Every person's request to that broker that has not had a form attempt becomes "Web form queued".
+- **Automatic form attempts.** Queued forms run on the scan worker (one browser at a time), live only, only for people who signed and have sending enabled, paced by `FORM_PER_HOUR` (default 6), round-robin across people. Submitted → "Request sent" (channel form). CAPTCHA, unrecognised form or no success message → "Needs you: web form" with the reason. Load errors retry up to 3 times, then Needs you. Brokers with a form and no email go the same way instead of being recorded straight to Needs you.
+
+### Fixed
+- Each broker reply is applied to a registry request once, so a later web-form step is not undone by an older reply. Form requests get no email follow-ups.
+
 ## [1.3.9] - 2026-10-15
 
 ### Changed

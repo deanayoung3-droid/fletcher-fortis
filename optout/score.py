@@ -69,6 +69,7 @@ def compute(c, pid, day=None):
         if day and st == "covered_by_drop" and not on(_d(r["created"])): st = "queued"
         if st == "completed": R["clear" if r["reply_kind"] == "not_found" else "deleted"] += 1; R["reached"] += 1
         elif st in CONTACTED_ST or st == "covered_by_drop": R["reached"] += 1
+        elif st in ("form_queued", "needs_human"): R["reached" if r["sent_ts"] else "queued"] += 1   # web-form step: counts as contacted if our email already went out
         elif st == "queued": R["queued"] += 1
         else: R["todo"] += 1   # failed, blocked_auth, dry_run
     scope = R["reached"] + R["queued"] + R["todo"]

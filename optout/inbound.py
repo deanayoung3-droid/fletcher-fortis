@@ -125,7 +125,8 @@ def refresh(c, pid):
     Removed tile, family cards, person page and score all move together."""
     try:
         import regreq, score
-        regreq._ensure(c); regreq.sync_replies(c); score.record(c, pid, score.compute(c, pid)["value"])
+        import regforms
+        regreq._ensure(c); regreq.sync_replies(c); regforms.harvest(c); score.record(c, pid, score.compute(c, pid)["value"])
     except Exception as e: event(c, "reply_refresh_error", f"{type(e).__name__}: {e}"[:200], pid)
 
 def classify(subject, body):

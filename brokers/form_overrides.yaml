@@ -1,0 +1,5 @@
+# Registry brokers that only take privacy requests through a web form (from their replies). Public broker URLs only.
+# The app also learns these automatically from "use our web form" replies; entries here are applied on every hourly run.
+leadpost:
+  url: https://app.leadpost.com/PrivacyRequest
+  source: "broker reply, 2026-10-16: privacy requests must go through the web form"
