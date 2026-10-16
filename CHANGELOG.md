@@ -2,6 +2,15 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.3.11] - 2026-10-16
+
+### Fixed
+- **CAPTCHA-solver errors are temporary.** A solver problem (provider HTTP error, timeout, zero balance, network) no longer sends a web-form request straight to Needs you: it is retried 3 times with backoff (+30 min, +2 h, +6 h), then goes to Needs you with the provider's own reason. Requests that went to Needs you only because of a solver error go back in the queue once on upgrade.
+- **The solver's real error reason.** CapSolver answers errors with an HTTP 4xx and a JSON body; the app now shows its errorCode / errorDescription instead of a bare "HTTPError". The API key is scrubbed from any text shown or logged.
+
+### Added
+- **Solver account on Heartbeat.** The app checks the CAPTCHA provider's account with the saved key (CapSolver getBalance, 2Captcha getbalance) hourly and on demand, and shows balance and status on Heartbeat ("low balance: top up" under $0.50). The key is never shown or logged.
+
 ## [1.3.10] - 2026-10-16
 
 ### Added

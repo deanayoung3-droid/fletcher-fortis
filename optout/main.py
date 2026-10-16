@@ -768,11 +768,13 @@ def gen_logins(r: Request, _=Depends(csrf)):
 def go_live_old(): return RedirectResponse("/admin/heartbeat", 301)
 
 @app.get("/admin/heartbeat", response_class=HTMLResponse)
-def heartbeat(r: Request, check: str = "", saved: str = "", tab: str = "status", msg: str = ""):
+def heartbeat(r: Request, check: str = "", saved: str = "", tab: str = "status", msg: str = "", captcha: str = ""):
     auth.require_admin(r); import heartbeat as hb
+    try: cap = automation.check_balance(C, force=bool(captcha)) if automation.provider() in automation.PRICE else None
+    except Exception: cap = None
     people = C.execute("SELECT * FROM people ORDER BY rowid").fetchall()
     return T.TemplateResponse(r, "heartbeat.html", {"status": hb.status(C), "items": golive.checklist(C), "dns": golive.dns_checks() if check else None, "domain": golive.domain(),
-        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C), "mail": _mail_health(), "cov": chain.coverage(c=C), "MLABEL": chain.LABEL})
+        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C), "mail": _mail_health(), "cov": chain.coverage(c=C), "MLABEL": chain.LABEL, "captcha": cap})
 
 def _mail_health():
     """Email sending card. A failure older than the latest successful delivery is shown as resolved (collapsed), and the

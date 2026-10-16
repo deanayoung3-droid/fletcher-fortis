@@ -69,7 +69,7 @@ def test_form_attempt_outcomes():
     assert regforms.run(b, filler=lambda p, u, i: ("needs_human", "form has a CAPTCHA (solver off)")) == "needs_human"
     assert "CAPTCHA" in status(b)["form_detail"]
     f = reg("alex", "formonly", "form_queued"); boom = lambda p, u, i: ("error", "could not load form")
-    assert [regforms.run(f, filler=boom) for _ in range(3)] == ["form_queued", "form_queued", "needs_human"]   # retried, then Needs you
+    assert [regforms.run(f, filler=boom) for _ in range(4)] == ["form_queued"] * 3 + ["needs_human"]   # retried 3 times, then Needs you
     assert regforms.run(f, filler=boom) is None   # not form_queued any more: nothing runs
 
 def test_needs_info_reply_with_a_form_link_is_learned_and_not_undone(monkeypatch):

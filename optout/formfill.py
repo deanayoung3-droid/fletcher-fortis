@@ -30,7 +30,7 @@ async def fill(page, url, vals, shot_path, dry=True, captcha_flag=False, solver=
     if solver and CAPTCHA.search(html):   # optional, admin-enabled; automation.solve never calls a provider in dry run or over budget
         import automation, asyncio
         tok, why = await asyncio.to_thread(automation.solve, page.url, html, listing_id, dry)
-        if not tok: return ("dry_run_filled" if dry else "needs_human"), why
+        if not tok: return ("dry_run_filled" if dry else "solver_error" if (why or "").startswith(automation.SOLVER_ERR) else "needs_human"), why   # provider trouble is temporary
     fields = await page.evaluate(DESCRIBE_JS); filled = []
     for f in fields:
         if f["type"] in ("hidden", "submit", "button", "file", "password"): continue

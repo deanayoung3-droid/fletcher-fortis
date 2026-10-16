@@ -4,6 +4,7 @@ scan -> match (score) -> approve (person/admin, or auto when score >= AUTO_APPRO
 -> weekly re-scan confirms -> Removed -> weekly re-check -> Reappeared -> auto re-file.
 Blocked sites can get a blind email request when the broker has a privacy address (BLIND_REQUESTS, off by default). CA residents get one DROP item (one request reaches 500+ registered brokers).
 tick() runs hourly from the scheduler (and on demand from Heartbeat)."""
+import json
 import datetime, os
 import config, remover
 from db import conn, now, event
@@ -22,6 +23,14 @@ def tick():
             if nl or nk: event(c, "inbox_relinked", f"{nl} replies linked to their request, {nk} re-classified")
             import regreq; regreq.sync_replies(c)
     except Exception as e: event(c, "relink_error", f"{type(e).__name__}: {e}"[:200])
+    try:   # CAPTCHA solver account (balance / key status) as the app sees it, for Heartbeat; the key is never logged
+        import automation
+        if automation.provider() in automation.PRICE:
+            prev = (c.execute("SELECT v FROM app_meta WHERE k='captcha_balance'").fetchone() or {}).get("v")
+            b = automation.check_balance(c, max_age=3000)
+            if not prev or json.loads(prev).get("status") != b["status"]:
+                event(c, "captcha_balance", f"{b['provider']}: {b['status']}" + (f", balance ${b['balance']:.2f}" if b.get("balance") is not None else ""))
+    except Exception as e: event(c, "captcha_balance_error", type(e).__name__)
     try:   # score formula changed: rebuild the daily snapshots once so the history chart uses one formula
         import score
         if (c.execute("SELECT v FROM app_meta WHERE k='score_formula'").fetchone() or {}).get("v") != score.FORMULA:

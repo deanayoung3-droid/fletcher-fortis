@@ -5,7 +5,7 @@
    exponential backoff (1, 2, 4, 8, 16 days). Only after every retry fails does it become a human task.
 3. Auto re-check: sites a person marked "not listed" or "I submitted it" are searched again automatically after RECHECK_DAYS.
 Truly human-only steps (ID upload, phone call, California DROP residency check, the person's own signature) are never automated."""
-import datetime, json, re, time, urllib.request, urllib.parse
+import datetime, json, re, time, urllib.request, urllib.parse, urllib.error
 import config
 from db import conn, now, event
 
@@ -40,10 +40,28 @@ def detect(html):
     kind = "turnstile" if "turnstile" in html else "hcaptcha" if re.search(r"h-?captcha", html) else "recaptcha"
     return kind, k.group(1)
 
-def _post(url, data, js=False):
+def _post(url, data, js=False, timeout=30):
+    """POST to a solver endpoint. A 4xx/5xx with a JSON body (CapSolver answers errors that way) is returned as that body, so the
+    provider's own reason (errorCode / errorDescription) reaches the user instead of a bare HTTPError."""
     body = json.dumps(data).encode() if js else urllib.parse.urlencode(data).encode()
     req = urllib.request.Request(url, body, {"Content-Type": "application/json" if js else "application/x-www-form-urlencoded"})
-    return json.loads(urllib.request.urlopen(req, timeout=30).read())  # nosec B310 (fixed https endpoints)
+    try: return json.loads(urllib.request.urlopen(req, timeout=timeout).read())  # nosec B310 (fixed https endpoints)
+    except urllib.error.HTTPError as e:
+        try: d = json.loads(e.read() or b"{}")
+        except Exception: d = {}
+        d.setdefault("errorId", 1); d.setdefault("errorCode", f"HTTP {e.code}"); d.setdefault("errorDescription", e.reason or "")
+        return d
+
+def scrub(s):
+    """Text safe to show or log: the API key is never included."""
+    k = config.get("CAPTCHA_API_KEY") or ""
+    s = str(s or "")
+    return s.replace(k, "***") if len(k) >= 6 else s
+
+def _why(r):
+    return scrub(" ".join(x for x in (str(r.get("errorCode") or ""), str(r.get("errorDescription") or "")) if x).strip() or "unknown error")
+
+SOLVER_ERR = "solver error"   # detail prefix for provider/network problems: temporary, retried with backoff
 
 def solve(page_url, html, listing_id=None, dry=True):
     """Returns (token, detail). Never calls a provider while dry or over the monthly cap."""
@@ -57,24 +75,51 @@ def solve(page_url, html, listing_id=None, dry=True):
         if provider() == "2captcha":
             m = {"recaptcha": "userrecaptcha", "hcaptcha": "hcaptcha", "turnstile": "turnstile"}[kind]
             r = _post("https://2captcha.com/in.php", {"key": api, "method": m, ("googlekey" if kind == "recaptcha" else "sitekey"): key, "pageurl": page_url, "json": 1})
-            if r.get("status") != 1: return None, f"2captcha: {r.get('request')}"
+            if r.get("status") != 1: return None, f"{SOLVER_ERR}: 2captcha: {scrub(r.get('request'))}"
             for _ in range(24):
                 time.sleep(5); g = json.loads(urllib.request.urlopen(f"https://2captcha.com/res.php?key={urllib.parse.quote(api)}&action=get&id={r['request']}&json=1", timeout=30).read())  # nosec B310
                 if g.get("status") == 1: tok = g["request"]; break
-                if g.get("request") != "CAPCHA_NOT_READY": return None, f"2captcha: {g.get('request')}"
-            else: return None, "2captcha: timed out"
+                if g.get("request") != "CAPCHA_NOT_READY": return None, f"{SOLVER_ERR}: 2captcha: {scrub(g.get('request'))}"
+            else: return None, f"{SOLVER_ERR}: 2captcha: timed out"
         else:
             t = {"recaptcha": "ReCaptchaV2TaskProxyLess", "hcaptcha": "HCaptchaTaskProxyLess", "turnstile": "AntiTurnstileTaskProxyLess"}[kind]
             r = _post("https://api.capsolver.com/createTask", {"clientKey": api, "task": {"type": t, "websiteURL": page_url, "websiteKey": key}}, js=True)
-            if r.get("errorId"): return None, f"capsolver: {r.get('errorDescription')}"
+            if r.get("errorId"): return None, f"{SOLVER_ERR}: capsolver: {_why(r)}"
             for _ in range(24):
                 time.sleep(5); g = _post("https://api.capsolver.com/getTaskResult", {"clientKey": api, "taskId": r["taskId"]}, js=True)
                 if g.get("status") == "ready": s = g["solution"]; tok = s.get("gRecaptchaResponse") or s.get("token"); break
-                if g.get("errorId"): return None, f"capsolver: {g.get('errorDescription')}"
-            else: return None, "capsolver: timed out"
-    except Exception as e: return None, f"{provider()} error: {type(e).__name__}"
+                if g.get("errorId"): return None, f"{SOLVER_ERR}: capsolver: {_why(g)}"
+            else: return None, f"{SOLVER_ERR}: capsolver: timed out"
+    except Exception as e: return None, f"{SOLVER_ERR}: {provider()}: {type(e).__name__}: {scrub(e)[:120]}"
     event(c, "captcha_solved", json.dumps({"usd": rate, "kind": kind, "provider": provider()}), None, listing_id); c.commit()
     return (kind, tok), f"solved {kind} via {provider()}"
+
+def check_balance(c=None, max_age=600, force=False):
+    """Solver account status as the app sees it: {"provider", "ok", "balance", "status", "checked"}. Cached in app_meta for
+    max_age seconds. Uses the saved key; the key itself is never returned, shown or logged."""
+    c = c or conn(); prov = provider()
+    try: cached = json.loads((c.execute("SELECT v FROM app_meta WHERE k='captcha_balance'").fetchone() or {}).get("v") or "{}")
+    except Exception: cached = {}
+    if not force and cached.get("provider") == prov and cached.get("checked") and (datetime.datetime.now() - datetime.datetime.fromisoformat(cached["checked"])).total_seconds() < max_age:
+        return cached
+    out = {"provider": prov, "ok": False, "balance": None, "status": "", "checked": now()}
+    if prov not in PRICE: out["status"] = "solver off"
+    elif not config.is_set("CAPTCHA_API_KEY"): out["status"] = "no API key saved"
+    else:
+        api = config.get("CAPTCHA_API_KEY")
+        try:
+            if prov == "capsolver":
+                r = _post("https://api.capsolver.com/getBalance", {"clientKey": api}, js=True, timeout=15)
+                if r.get("errorId"): out["status"] = _why(r)
+                else: out.update(ok=True, balance=float(r.get("balance") or 0), status="ok")
+            else:
+                r = json.loads(urllib.request.urlopen(f"https://2captcha.com/res.php?key={urllib.parse.quote(api)}&action=getbalance&json=1", timeout=15).read())  # nosec B310
+                if r.get("status") == 1: out.update(ok=True, balance=float(r.get("request") or 0), status="ok")
+                else: out["status"] = scrub(r.get("request") or "unknown error")
+        except Exception as e: out["status"] = f"could not reach {prov}: {type(e).__name__}"
+        if out["ok"] and out["balance"] is not None and out["balance"] < max(PRICE[prov] * 20, 0.5): out["status"] = "low balance: top up"
+    c.execute("INSERT INTO app_meta(k,v) VALUES('captcha_balance',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (json.dumps(out),)); c.commit()
+    return out
 
 INJECT_JS = """([kind, tok]) => { const n = {recaptcha: 'g-recaptcha-response', hcaptcha: 'h-captcha-response', turnstile: 'cf-turnstile-response'}[kind];
   let els = document.querySelectorAll(`[name="${n}"], #${n}`);

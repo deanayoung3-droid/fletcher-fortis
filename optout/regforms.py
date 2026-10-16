@@ -8,14 +8,15 @@ The automatic attempt runs on the scan worker (one Chromium at a time), live onl
 signed their authorization and have sending enabled, paced FORM_PER_HOUR. Outcomes:
   submitted ............ request status 'sent' (channel form)
   CAPTCHA / unrecognised form / no success message ... 'needs_human' (Needs you), with the reason
-  load error ........... retried on the next runs, then Needs you after MAX_TRIES"""
-import os, re, json, asyncio, yaml
+  load error or CAPTCHA-solver error (provider down, HTTP error, zero balance ...): temporary, retried MAX_RETRIES times with
+      backoff (BACKOFF_MIN), then Needs you with the provider's own reason"""
+import os, re, json, asyncio, datetime, yaml
 import config, remover, registries
 from db import conn, now, event
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OVERRIDES = os.environ.get("FORM_OVERRIDES", os.path.join(HERE, "..", "brokers", "form_overrides.yaml"))
-MAX_TRIES = 3
+MAX_RETRIES = 3; BACKOFF_MIN = (30, 120, 360)   # 3 retries after the first attempt: +30 min, +2 h, +6 h
 REMARK = ("queued", "failed", "sent", "needs_info", "dry_run")   # statuses a "use our form" broker's requests move from
 URL = re.compile(r"https://[^\s<>\"')\]]+", re.I)
 FORMISH = re.compile(r"privacy|request|webform|web-form|form|portal|dsr|dsar|rights|onetrust|trustarc|ketch|datagrail|transcend|consumer|opt.?out", re.I)
@@ -24,7 +25,7 @@ SKIP = re.compile(r"unsubscribe|fletcherfortis|mailto:|\.(png|jpe?g|gif|svg)(\?|
 
 def ensure(c):
     c.execute("CREATE TABLE IF NOT EXISTS broker_forms(broker TEXT PRIMARY KEY, url TEXT, source TEXT, inbox_id INT, updated TEXT)")
-    for col in ("form_at TEXT", "form_tries INT DEFAULT 0", "form_detail TEXT"):
+    for col in ("form_at TEXT", "form_tries INT DEFAULT 0", "form_detail TEXT", "form_next TEXT"):
         try: c.execute("ALTER TABLE reg_requests ADD COLUMN " + col)
         except Exception: pass
 
@@ -86,12 +87,12 @@ def harvest(c):
 
 def tick(c, limit=None):
     """Hourly: apply overrides, learn from replies, then queue a paced batch of live form attempts on the scan worker."""
-    ensure(c); res = {"form_seeded": seed(c), "form_learned": sum(harvest(c).values()), "form_started": 0}
+    ensure(c); res = {"form_seeded": seed(c), "form_learned": sum(harvest(c).values()), "form_started": 0, "form_requeued": requeue_solver_errors(c)}
     if remover.DRY or config.get("REGISTRY_FORMS", "true") != "true": return res
     limit = limit or int(config.get("FORM_PER_HOUR") or 6)
     people = {p["id"]: p for p in c.execute("SELECT * FROM people WHERE enabled=1").fetchall()}
     per = {}
-    for r in c.execute("SELECT id, person_id FROM reg_requests WHERE status='form_queued' ORDER BY id").fetchall():
+    for r in c.execute("SELECT id, person_id FROM reg_requests WHERE status='form_queued' AND (form_next IS NULL OR form_next<=?) ORDER BY id", (now(),)).fetchall():
         p = people.get(r["person_id"])
         if p and remover.can_send(p)[0]: per.setdefault(r["person_id"], []).append(r["id"])   # unsigned people stay locked
     import scanjobs; i = 0
@@ -100,6 +101,15 @@ def tick(c, limit=None):
             if i < len(v) and res["form_started"] < limit and scanjobs.enqueue_regform(v[i]): res["form_started"] += 1
         i += 1
     return res
+
+def requeue_solver_errors(c):
+    """Once per release: requests that went to Needs you only because the CAPTCHA solver errored go back in the queue."""
+    import db as _db
+    if (c.execute("SELECT v FROM app_meta WHERE k='regform_solver_requeue'").fetchone() or {}).get("v") == _db.app_version(): return 0
+    n = c.execute("UPDATE reg_requests SET status='form_queued', form_tries=0, form_next=NULL, updated=? WHERE status='needs_human' AND (form_detail LIKE 'capsolver error%' OR form_detail LIKE '2captcha error%' OR form_detail LIKE 'solver error%')", (now(),)).rowcount
+    c.execute("INSERT INTO app_meta(k,v) VALUES('regform_solver_requeue',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (_db.app_version(),)); c.commit()
+    if n: event(c, "registry_form_requeued", f"{n} web-form request(s) back in the queue: the CAPTCHA solver error was temporary")
+    return n
 
 async def _fill(p, url, rid):
     import formfill, scanner, profiles, automation, chain
@@ -128,12 +138,14 @@ def run(rid, filler=None):
     url = form_url(c, r["broker"]) or r["target"] or b.get("optout_url")
     try: st, detail = (filler or (lambda p_, u, i: asyncio.run(_fill(p_, u, i))))(p, url, rid)
     except Exception as e: st, detail = "error", type(e).__name__
-    tries = (r["form_tries"] or 0) + 1
+    tries = (r["form_tries"] or 0) + 1; nxt = None
     if st == "submitted": new = "sent"
-    elif st == "error" and tries < MAX_TRIES: new = "form_queued"
+    elif st in ("error", "solver_error") and tries <= MAX_RETRIES:   # temporary: try again later
+        new = "form_queued"; nxt = (datetime.datetime.now() + datetime.timedelta(minutes=BACKOFF_MIN[min(tries, len(BACKOFF_MIN)) - 1])).isoformat(timespec="seconds")
     else: new = "needs_human"
-    c.execute("UPDATE reg_requests SET status=?, channel='form', target=?, form_at=?, form_tries=?, form_detail=?, sent_at=CASE WHEN ?='sent' THEN ? ELSE sent_at END, updated=? WHERE id=?",
-              (new, url, now(), tries, (detail or "")[:300], new, now(), now(), rid))
+    if st == "solver_error" and new == "needs_human": detail = f"CAPTCHA solver kept failing ({tries} attempts): {detail}"
+    c.execute("UPDATE reg_requests SET status=?, channel='form', target=?, form_at=?, form_tries=?, form_detail=?, form_next=?, sent_at=CASE WHEN ?='sent' THEN ? ELSE sent_at END, updated=? WHERE id=?",
+              (new, url, now(), tries, (detail or "")[:300], nxt, new, now(), now(), rid))
     if new != "form_queued":
         remover._record(c, p, url, f"Registry broker web form: {b.get('name')}", detail or st, "submitted" if new == "sent" else "needs_human", None)
     event(c, "registry_form_" + ("submitted" if new == "sent" else "retry" if new == "form_queued" else "needs_human"), f"{b.get('name')}: {(detail or st)[:160]}", p["id"])
