@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites, scanjobs, shots, chain
+import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites, scanjobs, shots, chain, backup, cfaccess, paths
 from db import now, event
 from crypto import enc
 import logsafe; logsafe.install()
@@ -57,7 +57,7 @@ def stats(pid=None):
 HIDE = ("not_me", "manual_check", "checked_clear")
 
 # ---------- security middleware ----------
-PUBLIC = ("/login", "/static/", "/healthz", "/inbound/email", "/twilio/", "/invite/", "/favicon.ico", "/setup")
+PUBLIC = ("/login", "/static/", "/healthz", "/inbound/email", "/twilio/", "/invite/", "/favicon.ico", "/setup", "/setup/restore")
 _HAS_USERS = [False]
 def has_users():
     if not _HAS_USERS[0]: _HAS_USERS[0] = bool(db.conn().execute("SELECT 1 FROM users LIMIT 1").fetchone())
@@ -68,6 +68,8 @@ def _allowed_hosts(r):
 
 @app.middleware("http")
 async def security(r: Request, call_next):
+    ok, r.state.cf_identity = cfaccess.check(r.url.path, r.headers)   # optional, off by default; never logs anyone in
+    if not ok: return _headers(Response("Cloudflare Access login required", 403))
     u = auth.session(r); r.state.user = u; tokv = CUR.set(u)
     try:
         path = r.url.path; public = any(path == p or (p.endswith("/") and path.startswith(p)) for p in PUBLIC)
@@ -158,7 +160,7 @@ def _safe_next(n): return n if n and n.startswith("/") and not n.startswith("//"
 @app.get("/login", response_class=HTMLResponse)
 def login_page(r: Request, next: str = ""):
     if r.state.user: return RedirectResponse(_safe_next(next), 303)
-    return T.TemplateResponse(r, "login.html", {"next": _safe_next(next), "error": None})
+    return T.TemplateResponse(r, "login.html", {"next": _safe_next(next), "error": None, "restored": r.query_params.get("restored") == "1"})
 
 @app.post("/login")
 def login(r: Request, username: str = Form(""), password: str = Form(""), next: str = Form("/")):
@@ -334,7 +336,7 @@ T.env.globals.update(coverage=_coverage, HEALTH_LABEL=HEALTH_LABEL)
 # ---------- pages ----------
 def _brokers():
     try:
-        import yaml; d = yaml.safe_load(open(os.environ.get("BROKER_OUT", "/data/brokers_merged.yaml"))); return {"total": d["total"], "src": d["source_counts"], "ts": d["generated"]}
+        import yaml; d = yaml.safe_load(open(__import__("paths").broker_out())); return {"total": d["total"], "src": d["source_counts"], "ts": d["generated"]}
     except Exception: return None
 
 @app.get("/", response_class=HTMLResponse)
@@ -774,7 +776,8 @@ def heartbeat(r: Request, check: str = "", saved: str = "", tab: str = "status",
     except Exception: cap = None
     people = C.execute("SELECT * FROM people ORDER BY rowid").fetchall()
     return T.TemplateResponse(r, "heartbeat.html", {"status": hb.status(C), "items": golive.checklist(C), "dns": golive.dns_checks() if check else None, "domain": golive.domain(),
-        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C), "mail": _mail_health(), "cov": chain.coverage(c=C), "MLABEL": chain.LABEL, "captcha": cap})
+        "fields": config.FIELDS, "groups": config.groups(), "cfg": config, "saved": saved, "tab": tab, "people": people, "msg": msg[:200], "lifecycle": lifecycle.LIFECYCLE, "upd": updates.cached(), "scanlog": scanjobs.log(C), "mail": _mail_health(), "cov": chain.coverage(c=C), "MLABEL": chain.LABEL, "captcha": cap,
+        "bk": {"paths": paths.summary(), "max_mb": backup.MAX_UPLOAD // 1_000_000, "dry_forced": config.dry_forced(), "cf": {"mode": cfaccess.mode(), **cfaccess.LAST}}})
 
 def _mail_health():
     """Email sending card. A failure older than the latest successful delivery is shown as resolved (collapsed), and the
@@ -812,6 +815,7 @@ async def heartbeat_save(r: Request, _=Depends(csrf)):
             elif form.get(k + "__clear"): vals[k] = ""; config.save({}, clear=[k])
         elif k in form: vals[k] = str(form.get(k))[:500]
     vals = {k: v for k, v in vals.items() if v is not None}
+    if vals.get("DRY_RUN") == "false" and config.dry_forced(): vals.pop("DRY_RUN"); errs.append("Dry run is locked on by DRY_RUN=true (or FORCE_DRY_RUN=true) in the server environment. Change it there and restart.")
     if vals.get("DRY_RUN") == "false" and remover.DRY and form.get("confirm_live") != "LIVE": vals.pop("DRY_RUN"); errs.append("To turn dry run off, type LIVE in the confirmation box.")
     for k, v in vals.items():
         kind = config.FIELDS[k][2]
@@ -962,6 +966,47 @@ def setup_admin(r: Request, name: str = Form(""), username: str = Form(""), emai
     _HAS_USERS[0] = True; onboarding.burn_token(); onboarding.update(C, step=2, skipped=[], done=False, key_ack=False, dismissed=False)
     event(C, "setup_admin_created", username); u = c.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
     resp = RedirectResponse("/setup/2", 303); auth.set_cookie(resp, auth.create_session(u["id"], auth.client_ip(r))); resp.delete_cookie(onboarding.COOKIE, path="/setup"); return resp
+
+def _after_restore():
+    """A restored database brings its own accounts, settings (encrypted keys included) and wizard state: reload them all."""
+    config.load(); config.apply(); refresh_globals(); _HAS_USERS[0] = False; has_users(); onboarding.burn_token()
+
+async def _restore_upload(r, form=None):
+    form = form or await r.form(max_files=1, max_fields=10); f = form.get("backup")
+    if not getattr(f, "filename", ""): raise ValueError("Choose the .ffb backup file first.")
+    path = backup.save_upload(f.file, backup.MAX_UPLOAD)
+    try:
+        with open(path, "rb") as fh: backup.peek(fh)          # same FF_DATA_KEY? refused before anything changes
+        with open(path, "rb") as fh: return backup.import_(fh)
+    finally:
+        try: os.remove(path)
+        except OSError: pass
+
+@app.post("/setup/restore")
+async def setup_restore(r: Request):
+    """First-run alternative to creating an admin: restore a full backup (same FF_DATA_KEY), then sign in with the restored admin."""
+    if has_users(): raise HTTPException(404)
+    if not onboarding.token_ok(r.cookies.get(onboarding.COOKIE)): return _locked(r)
+    try: res = await _restore_upload(r)
+    except ValueError as e: return _wiz(r, 1, status_code=400, restore_error=str(e))
+    _after_restore(); event(C, "backup_restored", f"setup wizard; from {res['from_version']} created {res['created']}; {res['files']} files")
+    resp = RedirectResponse("/login?restored=1", 303); resp.delete_cookie(onboarding.COOKIE, path="/setup"); return resp
+
+@app.post("/admin/backup/export")
+def backup_export(r: Request, _=Depends(csrf)):
+    auth.require_admin(r); path, s = backup.export()
+    event(C, "backup_exported", f"{os.path.getsize(path)} bytes, {s['files']} files")
+    from starlette.background import BackgroundTask
+    return FileResponse(path, media_type="application/octet-stream", filename=os.path.basename(path), background=BackgroundTask(os.remove, path))
+
+@app.post("/admin/backup/import")
+async def backup_import(r: Request, _=Depends(csrf)):
+    auth.require_admin(r); form = await r.form(max_files=1, max_fields=10)
+    if form.get("confirm") != "RESTORE": return RedirectResponse("/admin/heartbeat?msg=" + quote("Type RESTORE to confirm replacing all data.") + "#backup", 303)
+    try: res = await _restore_upload(r, form)
+    except ValueError as e: return RedirectResponse("/admin/heartbeat?msg=" + quote("Import refused: " + str(e)) + "#backup", 303)
+    _after_restore(); event(C, "backup_restored", f"heartbeat; from {res['from_version']} created {res['created']}; {res['files']} files; safety copy {res['safety_copy']}")
+    return RedirectResponse("/login?restored=1", 303)   # the restored database has its own sessions: sign in again
 
 @app.get("/setup/{n}", response_class=HTMLResponse)
 def setup_step(r: Request, n: int, msg: str = "", dns: str = "", probe: str = ""):

@@ -2,6 +2,18 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.4.0] - 2026-10-18
+
+### Added
+- **Backup and move.** Heartbeat → *Backup and move* exports one encrypted file (database snapshot, every setting including the saved keys, screenshots, signed PDFs; AES-256-GCM, key derived from `FF_DATA_KEY`) and imports it (type RESTORE; a safety copy of the current data is kept first). Also from the command line inside the container: `python -m optout.backup export|import|check <file>`. Uploads up to `BACKUP_MAX_MB` (500).
+- **Restore on a fresh install.** The first-run setup page (from the `Setup URL:` log line) offers *Restore from a backup* instead of creating an admin. A file made with a different `FF_DATA_KEY`, a damaged file or one from a newer version is refused before anything changes; afterwards you sign in with the restored admin.
+- **Separate database and file locations.** `DATA_DIR` (files) and `STATE_DIR`/`DB_DIR` (SQLite and small state, local disk). Defaults unchanged: everything in `/data`.
+- **Optional Cloudflare Access check** (`PLATFORM_CF_TEAM_DOMAIN`, `PLATFORM_CF_AUD`, `CF_ACCESS_MODE=off|log|require`, off by default). Verifies the signed `Cf-Access-Jwt-Assertion` token; never logs anyone in.
+- The email Worker can send a Cloudflare Access service token (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) for apps behind Access.
+
+### Changed
+- **`DRY_RUN=true` in the environment now wins over Heartbeat > Settings** (also `FORCE_DRY_RUN=true`), so a restored database that was live can't make a new server send. The compose files now leave `DRY_RUN` empty by default so Heartbeat can still switch it; a stack that sets `DRY_RUN=true` explicitly stays in dry run until that is changed.
+
 ## [1.3.11] - 2026-10-16
 
 ### Fixed

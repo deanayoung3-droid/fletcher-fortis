@@ -3,7 +3,7 @@ The member signs for themselves only (drawn signature + typed full legal name + 
 and render a plain PDF letter from it. No SSN, date of birth or ID number is ever asked for or printed."""
 import os, datetime, hashlib, json
 STATEMENT = "I authorize this service to submit privacy requests on my behalf"
-def auth_dir(): return os.path.realpath(os.environ.get("AUTH_DIR", "/data/auth"))
+def auth_dir(): return os.path.realpath(__import__("paths").auth_dir())
 def pdf_path(pid): return os.path.join(auth_dir(), f"{pid}-esign.pdf")
 
 def letter_lines(p, signer_name, ts, ip, username, agent=None):

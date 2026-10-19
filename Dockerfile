@@ -9,7 +9,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /eraser ./cmd/eraser &&
 FROM mcr.microsoft.com/playwright/python:v1.63.0-noble
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright HOME=/tmp \
-    DB_PATH=/data/optout.db SHOT_DIR=/data/shots AUTH_DIR=/data/auth HEALTH_FILE=/data/site_health.json BROKER_OUT=/data/brokers_merged.yaml \
+    DATA_DIR=/data PYTHONPATH=/app \
     PROFILES_DIR=/config/profiles SKIP_FILE=/app/skip_ids.txt BROKERS_FILE=/app/brokers.yaml DRY_RUN=true
 COPY requirements.txt /app/requirements.txt
 RUN pip install --break-system-packages -r /app/requirements.txt 2>/dev/null || pip install -r /app/requirements.txt
@@ -20,7 +20,8 @@ COPY VERSION /app/VERSION
 COPY brokers/ /app/brokers/
 COPY deploy/cloudflare-email-worker.js /app/deploy/cloudflare-email-worker.js
 COPY optout/ /app/optout/
-# non-root user; /data and /config are the only writable paths (root filesystem can be mounted read-only)
+# non-root user; /data and /config are the only writable paths (root filesystem can be mounted read-only).
+# Optional: DB_DIR=/state keeps the SQLite database and small state on local disk while files stay in DATA_DIR (see optout/paths.py).
 RUN groupadd -g 10001 ff && useradd -u 10001 -g ff -M -d /tmp -s /usr/sbin/nologin ff \
  && mkdir -p /data /config/profiles \
  && { chown -R ff:ff /data /config && chmod 700 /data; } || chmod 1777 /data /config /config/profiles \

@@ -17,7 +17,7 @@ services:
       com.centurylinklabs.watchtower.enable: "true"   # lets the optional Watchtower sidecar update this container only
     environment:
       TZ: ${TZ:-America/Los_Angeles}
-      DRY_RUN: ${DRY_RUN:-true}                        # switch off in Heartbeat > Settings when ready
+      DRY_RUN: ${DRY_RUN:-}      # empty = dry run until you switch it off in Heartbeat; "true" here locks dry run on (wins over Heartbeat)
       PUBLIC_URL: ${PUBLIC_URL:-}                      # or set it in Heartbeat > Settings
       COOKIE_SECURE: "true"                            # sessions only over HTTPS (Cloudflare / Caddy terminate TLS)
       TRUST_CF_HEADER: ${TRUST_CF_HEADER:-true}        # rate-limit by CF-Connecting-IP (set false if not behind Cloudflare)

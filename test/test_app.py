@@ -166,7 +166,10 @@ def test_settings_apply_without_restart_and_secrets_write_only(admin):
     assert "Test Shield" in page and "re_secret_value_123456" not in page and "3456" in page and remover.FROM_ADDRESS == "privacy@example.net"
     assert sqlite3.connect(os.environ["DB_PATH"]).execute("SELECT v FROM settings WHERE k='RESEND_API_KEY'").fetchone()[0] != "re_secret_value_123456"
     admin.post("/admin/heartbeat/settings", data={"csrf": t, "RESEND_API_KEY": ""}); assert config.get("RESEND_API_KEY") == "re_secret_value_123456"   # empty keeps it
-    r = admin.post("/admin/heartbeat/settings", data={"csrf": t, "DRY_RUN__present": "1"}); assert "LIVE" in r.headers["location"] and remover.DRY   # no confirmation -> stays dry
+    r = admin.post("/admin/heartbeat/settings", data={"csrf": t, "DRY_RUN__present": "1"}); assert "locked" in r.headers["location"] and remover.DRY   # env DRY_RUN=true wins (v1.4.0)
+    env0 = config._ENV0.get("DRY_RUN"); config._ENV0["DRY_RUN"] = None
+    try: r = admin.post("/admin/heartbeat/settings", data={"csrf": t, "DRY_RUN__present": "1"}); assert "LIVE" in r.headers["location"] and remover.DRY   # no confirmation -> stays dry
+    finally: config._ENV0["DRY_RUN"] = env0
     admin.post("/admin/heartbeat/settings", data={"csrf": t, "APP_NAME": "", "FROM_ADDRESS": ""}); config.save({}, clear=["RESEND_API_KEY"])
     assert "Fletcher Fortis" in admin.get("/admin/heartbeat").text
 

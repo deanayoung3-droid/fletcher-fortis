@@ -51,7 +51,7 @@ def status(c):
     add("inbound", "Inbound mail", "ok" if sec and ib else "warn", ("receiving" if ib else "waiting for first message") if sec else "not configured", f"last message {_ago(ib['ts']) if ib else 'never'} · link auto-click {'on' if config.get('INBOUND_AUTOCLICK') == 'true' else 'off'}", "mail")
     dom = remover.FROM_ADDRESS.split("@")[-1]
     add("dns", "DNS (SPF / DKIM / DMARC)", "idle", dom if not dom.endswith("example.com") else "no domain yet", "press Check DNS to look it up live", "shield")
-    dbp = os.environ.get("DB_PATH") or os.path.join(os.environ.get("DATA_DIR", "/data"), "optout.db")
+    dbp = __import__("paths").db_path()
     try: du = shutil.disk_usage(os.path.dirname(dbp) or "."); free = du.free / du.total; size = os.path.getsize(dbp) / 1e6
     except Exception: free, size = 1, 0
     add("disk", "Disk & database", "ok" if free > .1 else "bad", f"{size:.1f} MB database", f"{free * 100:.0f}% disk free · encrypted at rest", "lock")

@@ -56,7 +56,12 @@ To rebuild it yourself: `docker build -t localhost/fletcher-fortis:latest .` in 
 | `IMAGE` | localhost/fletcher-fortis:latest | Image tag imported in step 1 |
 | `FF_DATA_KEY` | *(required)* | Encryption key for family data. Back it up. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | *(optional)* | Creates the admin account |
-| `DRY_RUN` | true | Nothing is emailed or submitted while true |
+| `DRY_RUN` | true | Nothing is emailed or submitted while true. Set in the environment, `true` always wins over Heartbeat > Settings (so a restored database can't make a new server send); `false` still lets Heartbeat switch dry run on. Empty = Heartbeat decides |
+| `FORCE_DRY_RUN` | | `true` locks dry run on whatever else says |
+| `DATA_DIR` | /data | Files: screenshots, signed authorization PDFs, broker lists |
+| `STATE_DIR` (or `DB_DIR`) | same as `DATA_DIR` | SQLite database and small state. Must be local disk, never a network share |
+| `BACKUP_MAX_MB` | 500 | Largest backup accepted by Import |
+| `PLATFORM_CF_TEAM_DOMAIN`, `PLATFORM_CF_AUD`, `CF_ACCESS_MODE` | , , off | Optional Cloudflare Access token check (`log` or `require`). The app's own login stays the source of truth |
 | `SCAN_DELAY_MS`, `SCAN_MAX_QUERIES_PER_SITE`, `SCAN_MAX_PAGES`, `SCAN_MAX_DETAILS` | 8000, 6, 2, 3 | Deep-scan pacing and depth per site (name variants × cities, result pages, detail pages followed) |
 | `MAIL_FILTER_ENABLED` | false | IMAP labeling (needs app passwords) |
 | `SUMMARY_TO` | | Weekly summary recipient |
@@ -146,6 +151,20 @@ Running Fletcher Fortis on the home server means scans leave from your **residen
 
 `PROXY_URL` (stack env) is **optional and off by default**. Leave it empty at home. Set it only if you host somewhere with a datacenter IP and bring your own residential proxy (`http://user:pass@host:port`). Fletcher Fortis never ships or buys one.
 Neither a home IP nor a proxy is used to solve CAPTCHAs: a site that still shows a challenge goes to the **Needs you** queue with a prefilled search link.
+
+## Moving to another server (backup and restore)
+Everything moves in one encrypted file: database, all settings (Resend key, inbound secret, CAPTCHA key and the rest), screenshots and signed PDFs. It opens only on an install with the **same `FF_DATA_KEY`**.
+
+1. **Export on the old server**: Heartbeat → *Backup and move* → **Export full backup**, or inside the container
+   `python -m optout.backup export /tmp/ff-backup.ffb` (safe while the app runs).
+2. **New server**: same `FF_DATA_KEY`, leave `ADMIN_PASSWORD` empty, and keep `DRY_RUN=true` until you switch over. Start it; the log prints
+   `Setup URL: https://<address>/setup?token=<token>`. Open it and choose **Restore from a backup** instead of creating an admin.
+   A file made with a different key is refused before anything changes. When it's done you land on the sign-in page: use the old admin account.
+   (Already set up? Heartbeat → **Import backup**, type RESTORE. Or `python -m optout.backup import <file>` in the container, then restart it.
+   `python -m optout.backup check <file>` only tests that the file opens with this key.)
+3. Stop the old server, point the domain and the email Worker's `APP_URL` at the new one, then set `DRY_RUN=false` and restart.
+
+If the app sits behind **Cloudflare Access**, the email Worker needs an Access service token for `/inbound/*` (a Service Auth or Bypass policy on that path): put its id and secret in the Worker secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (see `deploy/cloudflare-email-worker.js`). Family members also need to be on the Access allow list to open invite and consent links.
 
 ## Updating
 Releases are published as multi-arch images (amd64 + arm64) at `ghcr.io/deanayoung3-droid/fletcher-fortis:<version>` and `:latest`.

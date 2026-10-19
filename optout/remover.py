@@ -6,8 +6,8 @@ from email.message import EmailMessage
 from db import conn, now, event
 from scanner import SITES
 from db import conn
-DRY = os.environ.get("DRY_RUN", "true").lower() != "false"
-DATA = os.path.dirname(os.environ.get("DB_PATH", "/data/optout.db"))
+DRY = os.environ.get("DRY_RUN", "true").lower() != "false" or os.environ.get("FORCE_DRY_RUN", "").lower() == "true"
+DATA = __import__("paths").scratch_dir()
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def _first(env, *paths): return os.environ.get(env) or next((x for x in paths if os.path.exists(x)), paths[0])
 SKIP_FILE = _first("SKIP_FILE", "/app/skip_ids.txt", os.path.join(_HERE, "config", "skip_ids.txt"))
@@ -164,7 +164,7 @@ def _broker_emails():
     """Privacy-request addresses from the bundled broker databases (Eraser + merged registries), by domain."""
     out = {}
     def dom(u): return (u or "").lower().split("://")[-1].split("/")[0].removeprefix("www.")
-    for f, key in ((BROKERS_FILE, "brokers"), (os.environ.get("BROKER_OUT", "/data/brokers_merged.yaml"), "brokers"), (os.path.join(_HERE, "data", "brokers_merged.yaml"), "brokers")):
+    for f, key in ((BROKERS_FILE, "brokers"), (__import__("paths").broker_out(), "brokers"), (os.path.join(_HERE, "data", "brokers_merged.yaml"), "brokers")):
         try:
             for b in yaml.safe_load(open(f)).get(key) or []:
                 if b.get("email") and "@" in b["email"]: out.setdefault(dom(b.get("website") or b.get("domain")), b["email"].strip())

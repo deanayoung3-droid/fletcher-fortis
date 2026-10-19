@@ -26,6 +26,8 @@ def init_token(c=None):
     _TOKEN[0] = os.environ.get("SETUP_TOKEN") or secrets.token_urlsafe(24)
     bar = "=" * 72
     print(f"\n{bar}\n Fletcher Fortis is ready for first-run setup.\n Setup URL: {base_url()}/setup?token={_TOKEN[0]}\n"
+          f" Open it to create the admin account, or to restore from a backup (.ffb) made on another install\n"
+          f" with the same FF_DATA_KEY.\n"
           f" (Use your server's address instead of localhost if you're on another machine.\n  The token changes on every restart and stops working once the admin exists.)\n{bar}\n", flush=True)
     return _TOKEN[0]
 

@@ -3,12 +3,12 @@ Sources: Eraser built-in list, CA CPPA registry CSV (live), optional extra sourc
 import csv, glob, io, os, re, sys, json, urllib.request, yaml, socket, datetime
 from urllib.parse import urlparse
 SEED = "/app/brokers"
-BASE = os.environ.get("BROKER_SRC", "/data/brokers")   # writable copy (the image is read-only); seeded from /app/brokers
+BASE = __import__("paths").broker_src()   # writable copy (the image is read-only); seeded from /app/brokers
 if not os.path.isdir(BASE) and os.path.isdir(SEED):
     import shutil
     try: shutil.copytree(SEED, BASE)
     except OSError: BASE = SEED
-OUT = os.environ.get("BROKER_OUT", "/data/brokers_merged.yaml")
+OUT = __import__("paths").broker_out()
 CA_URL = "https://cppa.ca.gov/data_broker_registry/registry.csv"
 ERASER_RAW = "https://raw.githubusercontent.com/digisamroc/eraser/main/data/brokers.yaml"
 

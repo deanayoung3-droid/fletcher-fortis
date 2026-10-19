@@ -10,7 +10,7 @@ import csv, datetime, io, json, os, re, sys, urllib.request
 import yaml
 HERE = os.path.dirname(__file__)
 SEED = os.environ.get("REGISTRY_SEED", os.path.join(HERE, "..", "brokers", "registries.yaml"))
-DIR = os.environ.get("REGISTRY_DIR", os.path.join(os.environ.get("DATA_DIR", "/data"), "registries"))
+DIR = __import__("paths").registry_dir()
 OUT = os.path.join(DIR, "registries.yaml")
 CA_URL = "https://cppa.ca.gov/data_broker_registry/registry.csv"
 OR_OPTOUT = "https://www4.cbs.state.or.us/ex/shared/downtemp/dfcs_db_optout.csv"

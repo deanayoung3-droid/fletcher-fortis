@@ -5,7 +5,7 @@ import email, email.policy, os, re, json, urllib.request, urllib.parse, urllib.e
 import yaml
 from db import now, event
 from crypto import enc
-DRY = os.environ.get("DRY_RUN", "true").lower() != "false"
+DRY = os.environ.get("DRY_RUN", "true").lower() != "false" or os.environ.get("FORCE_DRY_RUN", "").lower() == "true"
 AUTOCLICK = os.environ.get("INBOUND_AUTOCLICK", "true").lower() == "true"
 TAG = re.compile(r"\[FF-([a-z0-9_]+)-(\d+)\]", re.I)
 PLUS = re.compile(r"[\w.-]+\+([a-z0-9_]+)@", re.I)

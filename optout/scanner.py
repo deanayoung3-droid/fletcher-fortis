@@ -4,7 +4,7 @@ from db import conn, now, event
 from crypto import enc
 import profiles
 SITES = yaml.safe_load(open(os.environ.get("SITES_FILE") or os.path.join(os.path.dirname(__file__), "sites.yaml")))["sites"]
-HEALTH_FILE = os.environ.get("HEALTH_FILE", "/data/site_health.json")
+HEALTH_FILE = __import__("paths").health_file()
 NOT_FOUND = re.compile(r"no (?:results|records|matches|people|one) (?:found|were found|matched)|we (?:could not|couldn.t) find|0 (?:results|records|people) found|did not match any|no exact matches|nothing found|page you requested could not be found|no one by that name", re.I)
 SUMMARY = re.compile(r"\b(?:records?|results?|matches|people|profiles?) (?:for|named|found)\b|we (?:found|uncovered)|search results|searching for|sample report|showing \d", re.I)
 STATE_RE = re.compile(r",\s?[A-Z]{2}\b|\b(?:CA|California)\b")
@@ -71,7 +71,7 @@ def record_health(site_id, status, evidence):
     try:
         os.makedirs(os.path.dirname(HEALTH_FILE), exist_ok=True); json.dump(h, open(HEALTH_FILE, "w"), indent=1)
     except Exception: pass
-SHOTS = os.environ.get("SHOT_DIR", "/data/shots")
+SHOTS = __import__("paths").shot_dir()
 AGE_RE = re.compile(r"\b(?:Age|age)[:\s]*(\d{1,3})\b")
 
 def slug(s): return re.sub(r"\s+", "-", (s or "").strip())

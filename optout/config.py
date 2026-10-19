@@ -69,14 +69,23 @@ def load():
         _cache.clear(); _cache.update({r["k"]: r["v"] for r in c.execute("SELECT k, v FROM settings")})
     return dict(_cache)
 
+def dry_forced():
+    """DRY_RUN=true (or FORCE_DRY_RUN=true) in the server environment always wins over the app setting, so a restored
+    database that says 'live' can't make a new install send. DRY_RUN=false in the environment still lets the app switch
+    dry run ON (the cautious direction), never the other way round."""
+    return (os.environ.get("FORCE_DRY_RUN") or "").strip().lower() == "true" or (_ENV0.get("DRY_RUN") or "").strip().lower() == "true"
+
 def get(k, default=None):
+    if k == "DRY_RUN" and dry_forced(): return "true"
     if k in _cache and _cache[k] not in (None, ""): return _cache[k]
     v = _ENV0.get(k) if k in _ENV0 else os.environ.get(k)
     if v not in (None, ""): return v
     return FIELDS[k][3] if k in FIELDS and default is None else default
 
 def is_set(k): return bool(get(k, ""))
-def source(k): return "app" if _cache.get(k) else ("env" if _ENV0.get(k) else "default")
+def source(k):
+    if k == "DRY_RUN" and dry_forced(): return "env"
+    return "app" if _cache.get(k) else ("env" if _ENV0.get(k) else "default")
 
 def save(values, clear=()):
     """values: {key: str}. Empty secret = keep the old one. Returns list of changed keys."""

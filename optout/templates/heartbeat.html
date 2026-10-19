@@ -19,6 +19,20 @@
  {% for i in rows %}<div class="flex items-start gap-3 px-4 py-2.5 border-t border-stone-100 dark:border-white/[.07]"><span class="mt-0.5 w-5 h-5 rounded-full grid place-items-center shrink-0 {{'bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300' if i.ok else 'bg-stone-100 text-stone-400 dark:bg-white/[.06]'}}">{{icon('check' if i.ok else 'x','w-3 h-3')}}</span>
   <div class="min-w-0 flex-1"><div class="text-[13.5px] font-medium">{{i.label}}</div>{% if i.detail %}<div class="text-[12px] text-stone-500 font-mono truncate">{{i.detail}}</div>{% endif %}{% if not i.ok and i.fix %}<div class="text-[12px] text-stone-500 dark:text-neutral-400 mt-0.5">{{i.fix}}</div>{% endif %}</div></div>{% endfor %}</section>{% endfor %}
 </div>
+<section id="backup" class="tile mt-3 scroll-mt-6" data-backup><div class="px-1 pb-2"><div class="text-[15px] font-semibold tracking-[-0.02em]">Backup and move</div>
+ <div class="text-[12.5px] text-stone-500">A full, encrypted copy of the database, settings (keys included) and files. It opens only on an install with the same <span class="font-mono">FF_DATA_KEY</span>, so keep that key in your password manager. Database: <span class="font-mono">{{bk.paths.database}}</span> · files: <span class="font-mono">{{bk.paths.files}}</span>.</div></div>
+ <div class="grid md:grid-cols-2 gap-3 px-1 mt-1">
+  <form method="post" action="/admin/backup/export" class="rounded-xl ring-1 ring-stone-200/80 dark:ring-white/10 p-3">{{csrf()}}
+   <div class="text-[13.5px] font-medium">Export full backup</div><p class="text-[12px] text-stone-500 mt-0.5">Downloads a <span class="font-mono">.ffbackup</span> file. Safe while the app runs.</p>
+   <button class="btn mt-2.5">{{icon('download')}}Export full backup</button></form>
+  <form method="post" action="/admin/backup/import" enctype="multipart/form-data" class="rounded-xl ring-1 ring-stone-200/80 dark:ring-white/10 p-3">{{csrf()}}
+   <div class="text-[13.5px] font-medium">Import backup</div><p class="text-[12px] text-stone-500 mt-0.5">Replaces all data here with the backup (up to {{bk.max_mb}} MB). A safety copy of the current data is kept first. You'll sign in again with the restored accounts.{% if bk.dry_forced %} Dry run stays on: <span class="font-mono">DRY_RUN=true</span> is set on the server.{% endif %}</p>
+   <input type="file" name="backup" accept=".ffb,.ffbackup,application/octet-stream" required class="mt-2 text-[12.5px] block">
+   <label class="flabel mt-2" for="bk-confirm">Type RESTORE to confirm</label><input class="input max-w-[200px] font-mono" id="bk-confirm" name="confirm" autocomplete="off" required>
+   <button class="btn mt-2.5">{{icon('upload')}}Import backup</button></form>
+ </div>
+ {% if bk.cf.mode != 'off' %}<p class="text-[12px] text-stone-500 px-1 mt-2">Cloudflare Access check: {{bk.cf.mode}}{% if bk.cf.at %} · last request {{'verified' if bk.cf.ok else 'not verified (' ~ bk.cf.why ~ ')'}} at {{bk.cf.at[11:16]}}{% endif %}</p>{% endif %}
+</section>
 <section id="updates" class="tile mt-3 scroll-mt-6" data-updates><div class="flex flex-wrap items-start gap-3 px-1">
  <div><div class="text-[15px] font-semibold tracking-[-0.02em]">Version</div>
   <div class="text-[13px] mt-1">Running <b class="font-mono" data-current>v{{upd.current}}</b>{% if upd.latest %} · latest release <b class="font-mono">v{{upd.latest}}</b>{% endif %}

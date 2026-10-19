@@ -1,6 +1,6 @@
 import sqlite3, os, datetime, re
 from crypto import enc, dec
-DB = os.environ.get("DB_PATH", "/data/optout.db")
+DB = __import__("paths").db_path()
 def now(): return datetime.datetime.now().isoformat(timespec="seconds")
 
 class Row(dict):

@@ -6,7 +6,7 @@ import datetime, json, os, re, urllib.request
 import config
 HERE = os.path.dirname(__file__)
 REPO_DEFAULT = "deanayoung3-droid/fletcher-fortis"
-CACHE = os.path.join(os.environ.get("DATA_DIR", "/data"), "update_check.json")
+CACHE = __import__("paths").update_cache()
 
 def current():
     for p in (os.path.join(HERE, "..", "VERSION"), "/app/VERSION"):

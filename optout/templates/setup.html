@@ -177,6 +177,14 @@
      {% else %}<button class="btn-p !h-10 !px-5" name="action" value="next">{{'Done, continue' if step == 4 else ('Add and continue' if step == 6 and not person else 'Continue')}}{{icon('chev','w-3.5 h-3.5')}}</button>{% endif %}
     </div></div>
    </form>
+   {% if step == 1 and not me() %}
+   <form method="post" action="/setup/restore" enctype="multipart/form-data" class="mt-6 max-w-[560px] rounded-2xl ring-1 ring-stone-200/80 dark:ring-white/10 p-4" data-restore>
+    <div class="text-[15px] font-semibold tracking-[-0.02em] flex items-center gap-2">{{icon('upload')}}Moving from another server? Restore from a backup</div>
+    <p class="text-[12.5px] text-stone-500 mt-1 leading-relaxed">Instead of creating a new admin, upload the <span class="font-mono">.ffb</span> / <span class="font-mono">.ffbackup</span> file exported from the old install (Heartbeat → Backup, or <span class="font-mono">python -m optout.backup export</span>). This server must have the same <span class="font-mono">FF_DATA_KEY</span>; otherwise the file is refused and nothing changes. Accounts, people, history and settings come back as they were, and you sign in with the old admin account.</p>
+    {% if restore_error %}<div role="alert" class="mt-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-3.5 py-2.5 text-[13px] text-rose-700 dark:text-rose-300 flex gap-2 items-center">{{icon('alert')}}{{restore_error}}</div>{% endif %}
+    <input type="file" name="backup" accept=".ffb,.ffbackup,application/octet-stream" required class="mt-3 text-[12.5px] block">
+    <button class="btn mt-3">{{icon('upload')}}Restore from this backup</button>
+   </form>{% endif %}
   </main>
  </div></div>
  <div class="flex items-center justify-center gap-2 py-4 text-[12px] text-stone-500"><button type="button" data-action="theme" class="hover:text-ink dark:hover:text-white">Theme</button></div>

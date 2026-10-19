@@ -2,7 +2,7 @@
 import imaplib, email, os, re
 from email.header import decode_header, make_header
 from db import conn, now, event
-DRY = os.environ.get("DRY_RUN", "true").lower() != "false"
+DRY = os.environ.get("DRY_RUN", "true").lower() != "false" or os.environ.get("FORCE_DRY_RUN", "").lower() == "true"
 BROKER_DOMAINS = set()
 try:
     import yaml; BROKER_DOMAINS = {b["email"].split("@")[1].lower() for b in yaml.safe_load(open("/app/brokers.yaml"))["brokers"] if b.get("email")}
