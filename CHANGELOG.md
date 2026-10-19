@@ -2,6 +2,11 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [Unreleased]
+
+### Fixed
+- `python -m optout.backup export` into `DATA_DIR` no longer packs a partial copy of the file it is writing (backup files are never included in a backup). Heartbeat exports were not affected.
+
 ## [1.4.0] - 2026-10-18
 
 ### Added

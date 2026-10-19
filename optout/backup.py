@@ -64,7 +64,7 @@ def _walk(root, arc_prefix, tar, skip_db=False):
     for dp, dns, fns in os.walk(root):
         dns[:] = [d for d in dns if d not in SKIP_DIRS and not d.startswith(".")]
         for fn in fns:
-            if (skip_db and fn in DB_FILES) or fn.startswith(".") or fn.endswith((".tmp", ".part")): continue
+            if (skip_db and fn in DB_FILES) or fn.startswith(".") or fn.endswith((".tmp", ".part", ".ffb", ".ffbackup")): continue   # never a backup inside a backup
             full = os.path.join(dp, fn); rel = os.path.relpath(full, root)
             if os.path.islink(full): continue
             tar.add(full, arcname=f"{arc_prefix}/{rel}", recursive=False); n += 1

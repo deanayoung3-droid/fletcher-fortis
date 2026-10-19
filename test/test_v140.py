@@ -146,6 +146,13 @@ def test_cli_check_export_and_wrong_key():
     assert p.returncode == 0 and out.read_bytes().startswith(backup.MAGIC), p.stderr
     p = subprocess.run([sys.executable, "-m", "optout.backup"], env=env, capture_output=True, text=True, cwd="/"); assert p.returncode == 2
 
+def test_export_into_data_dir_does_not_include_itself():
+    out = NEW / "data" / "inside.ffb"; backup.export(str(out))
+    import tarfile
+    with open(out, "rb") as f, tarfile.open(fileobj=backup._DecReader(f), mode="r|gz") as t: names = [m.name for m in t]
+    assert "db/optout.db" in names and not [n for n in names if n.endswith((".ffb", ".ffbackup"))]
+    out.unlink()
+
 def test_newer_backup_is_refused(monkeypatch):
     monkeypatch.setattr(db, "app_version", lambda: "1.0.0")
     with open(GOOD, "rb") as f, pytest.raises(ValueError, match="newer version"): backup.import_(f)
