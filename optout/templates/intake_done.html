@@ -1,5 +1,5 @@
 {% from "_ui.html" import icon with context %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{APP}}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><script src="/static/theme.js?v={{ASSET}}"></script><link rel="stylesheet" href="/static/app.css?v={{ASSET}}"></head>
+<title>{{APP}}</title><link rel="icon" href="/invite/static/favicon.svg" type="image/svg+xml"><script src="/invite/static/theme.js?v={{ASSET}}"></script><link rel="preload" href="/invite/static/fonts/Geist-Variable.woff2?v={{ASSET}}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/invite/static/fonts/GeistMono-Variable.woff2?v={{ASSET}}" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/invite/static/app.css?v={{ASSET}}"></head>
 <body class="min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased grid place-items-center px-4">
 <div class="max-w-[480px] w-full tile"><div class="card-w p-6 sm:p-8 text-center">
  {% if closed %}<span class="mx-auto w-12 h-12 rounded-full bg-stone-100 dark:bg-white/[.06] text-stone-500 grid place-items-center">{{icon('lock','w-5 h-5')}}</span>
