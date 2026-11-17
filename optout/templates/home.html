@@ -5,7 +5,7 @@
 {% set rv = '/person/' ~ tg.id if tg.id else '/add' %}{% set RM = removals() %}{% set rate = RM.pct %}
 <div class="flex flex-wrap items-end gap-4 mb-5 px-1 reveal-me">
  <div><h1 class="text-[40px] leading-[1.05] font-medium tracking-[-0.045em]">Overview</h1>
- <p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-1.5">{{people|length}} people monitored · <span class="font-mono text-[12.5px]">{{found}}</span> exposures found · next scan {{next_scan().strftime('%a %b %-d')}}</p></div>
+ <p class="text-[13.5px] text-stone-500 dark:text-neutral-400 mt-1.5">{{people|length}} in the family{% if outside %} · {{outside|length}} outside / managed{% endif %} · <span class="font-mono text-[12.5px]">{{found}}</span> family exposures · next scan {{next_scan().strftime('%a %b %-d')}}</p></div>
  <div class="ml-auto flex gap-2"><span class="hidden md:inline-flex items-center gap-2 h-9 px-3.5 rounded-full bg-white dark:bg-neutral-900 ring-1 ring-black/[.05] dark:ring-white/10 text-[13px]">{{icon('cal','w-3.5 h-3.5')}}Last 12 weeks</span>
  <a href="/family" class="btn">{{icon('users')}}Family &amp; accounts</a><a href="{{rv}}" class="btn-p">{{icon('check')}}Review exposures</a></div>
 </div>
@@ -36,7 +36,7 @@
 
 <div class="grid lg:grid-cols-12 gap-3 mb-3">
  <section class="tile lg:col-span-4 !p-0 flex flex-col">
-  <div class="p-5 pb-3"><div class="flex items-start"><div><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Family privacy score</h2><div class="text-[12.5px] text-stone-500 mt-0.5">Average of {{people|length}} members</div></div>
+  <div class="p-5 pb-3"><div class="flex items-start"><div><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Family privacy score</h2><div class="text-[12.5px] text-stone-500 mt-0.5">Average of {{people|length}} family member{{'s' if people|length != 1}}. Outside people are not included.</div></div>
    <span class="ml-auto w-8 h-8 rounded-full ring-1 ring-stone-200 dark:ring-white/10 grid place-items-center text-stone-400">{{icon('shield','w-3.5 h-3.5')}}</span></div>
    <div class="flex items-end gap-3 mt-4"><span class="text-[60px] leading-[.9] font-medium num"><span data-count="{{fs.value}}">{{fs.value}}</span><span class="text-stone-300 dark:text-neutral-700 text-[30px]">/100</span></span></div>
    <div class="flex items-center gap-2 mt-3">{{pill('Grade ' ~ fs.grade, 'green' if fs.value >= 70 else 'amber')}}<span class="text-[12.5px] text-stone-500">{{fs.open}} open · {{fs.removed}} removed</span></div>
@@ -65,7 +65,7 @@
 
 <div class="grid lg:grid-cols-12 gap-3 mb-3">
  <section class="tile lg:col-span-8 !p-0">
-  <div class="flex items-center gap-2 p-4 pb-2"><div class="flex items-center gap-1 rounded-full bg-stone-100 dark:bg-white/[.06] p-1"><span class="tab on">Family · {{people|length}}</span><a href="/needs-you" class="tab">Needs you</a><a href="/calls" class="tab">Calls</a></div>
+  <div class="flex items-center gap-2 p-4 pb-2"><div class="flex items-center gap-1 rounded-full bg-stone-100 dark:bg-white/[.06] p-1"><span class="tab on">Family · {{people|length}}</span><a href="#outside" class="tab">Outside · {{outside|length}}</a><a href="/needs-you" class="tab">Needs you</a></div>
    <span class="ml-auto pill bg-emerald-50 text-emerald-700 ring-emerald-200/70 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/20">{{icon('check','w-3 h-3')}}Scanned {{(events[0].ts[5:10] if events else '—')}}</span><a href="/add" class="btn !h-8">{{icon('plus','w-3.5 h-3.5')}}Add member</a></div>
   <div class="px-2 pb-2 overflow-x-auto"><table class="w-full text-[13px] min-w-[640px]">
    <thead><tr class="text-left text-[12px] text-stone-400 dark:text-neutral-500"><th class="font-normal px-3 py-2">Member</th><th class="font-normal px-3 py-2">Found</th><th class="font-normal px-3 py-2 w-[26%]">Progress</th><th class="font-normal px-3 py-2">Status</th><th class="font-normal px-3 py-2 text-right">Score</th><th></th></tr></thead>
@@ -92,6 +92,35 @@
   {% else %}<div class="px-6 py-10 text-center"><span class="mx-auto w-11 h-11 rounded-full bg-emerald-50 dark:bg-emerald-400/10 text-emerald-600 grid place-items-center">{{icon('check','w-5 h-5')}}</span><div class="text-[14px] font-semibold mt-3">You're all caught up</div><div class="text-[12.5px] text-stone-500 mt-1">Only steps that truly need a person show up here, batched.</div></div>{% endfor %}
   </div></section>
 </div>
+
+<section id="outside" class="tile !p-0 mb-3 scroll-mt-6">
+ <div class="flex flex-wrap items-start gap-3 p-4 pb-2">
+  <div class="min-w-0 flex-1"><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Outside / managed</h2>
+   <p class="text-[12.5px] text-stone-500 mt-0.5 max-w-[640px]">Clients, friends and relatives who are not in the household. Same scans, evidence, approvals and removals. Not in the family table, the family privacy score or the Monday family email. Each person's listings stay on their own page.</p></div>
+  <a href="/add" class="btn !h-8">{{icon('plus','w-3.5 h-3.5')}}Add outside person</a></div>
+ <div id="intake-new" class="mx-4 mb-3 rounded-2xl bg-stone-50 dark:bg-white/[.04] ring-1 ring-stone-200/70 dark:ring-white/10 p-3">
+  {% if intake_err %}<div role="alert" class="mb-2 text-[12.5px] text-rose-600">{{intake_err}}</div>{% endif %}
+  {% if intake_link %}<div class="mb-3 flex flex-col sm:flex-row sm:items-center gap-2"><div class="min-w-0 flex-1"><div class="text-[13px] font-semibold">{{'Link emailed' if intake_sent == 'sent' else ('Link saved to send later' if intake_sent == 'pending' else 'Private link ready')}}</div><div class="text-[12px] text-stone-500">Single use, expires in 7 days. Nothing was emailed unless you pressed Email the link.</div>
+   <input id="home-ink" readonly class="input mt-1.5 font-mono !h-9 !text-[12px]" value="{{intake_link}}"></div><button type="button" class="btn !h-9" data-copy="home-ink">{{icon('copy')}}<span>Copy</span></button></div>{% endif %}
+  <form method="post" action="/intake/new" class="flex flex-col lg:flex-row lg:items-end gap-2">{{csrf()}}
+   <div class="lg:w-[200px]"><label class="flabel" for="ink-rel">Link for a new person</label><select class="input !h-9" id="ink-rel" name="relationship"><option value="outside">Outside / managed</option><option value="family">Family</option></select></div>
+   <div class="flex-1 min-w-0"><label class="flabel" for="ink-em">Email <span class="text-stone-400 font-normal">only if you press Email</span></label><input class="input !h-9" id="ink-em" name="email" type="email" maxlength="200" placeholder="person@example.com" autocomplete="off"></div>
+   <button class="btn !h-9" name="send" value="">{{icon('link')}}Generate link</button>
+   <button class="btn-p !h-9" name="send" value="1">{{icon('mail')}}Email the link</button></form>
+  <p class="text-[11.5px] text-stone-400 mt-1.5">The person opens it with no account. They enter their details and sign. The link dies after one submit.</p></div>
+ {% if outside %}
+ <div class="px-2 pb-2 overflow-x-auto"><table class="w-full text-[13px] min-w-[640px]">
+  <thead><tr class="text-left text-[12px] text-stone-400 dark:text-neutral-500"><th class="font-normal px-3 py-2">Person</th><th class="font-normal px-3 py-2">Found</th><th class="font-normal px-3 py-2 w-[26%]">Progress</th><th class="font-normal px-3 py-2">Status</th><th class="font-normal px-3 py-2 text-right">Score</th><th></th></tr></thead>
+  <tbody>{% for p in outside %}{% set s = stats[p.id] %}{% set tot = (s.values()|sum) - s.get('not_me',0) - s.get('manual_check',0) - s.get('checked_clear',0) %}{% set sc = score(p.id) %}
+  <tr class="group cursor-pointer row-lift border-t border-stone-100 dark:border-white/[.06]" data-href="/person/{{p.id}}" data-q="{{p.full_name}} {{p.city}}">
+   <td class="px-3 py-3"><div class="flex items-center gap-3">{{avatar(p,'w-9 h-9 text-[12px]')}}<div class="min-w-0"><a href="/person/{{p.id}}" class="font-semibold whitespace-nowrap">{{p.full_name}}</a><div class="text-[12px] text-stone-500">{{[p.city, p.state]|select|join(', ') or 'Location not set'}} · Outside</div></div></div></td>
+   <td class="px-3 py-3 font-mono text-[12.5px]">{{tot}}</td>
+   <td class="px-3 py-3"><div class="flex h-1.5 rounded-full overflow-hidden bg-stone-100 dark:bg-white/[.06]">{% for k,c in [('confirmed_removed','bg-emerald-500'),('submitted','bg-accent-500'),('pending','bg-accent-500'),('approved','bg-accent-400'),('needs_human','bg-violet-500'),('candidate','bg-amber-400'),('blocked_auth','bg-amber-300'),('reappeared','bg-rose-500')] %}{% if tot and s.get(k) %}<i class="{{c}}" style="width:{{100*s.get(k,0)/tot}}%"></i>{% endif %}{% endfor %}</div><div class="text-[11.5px] text-stone-500 mt-1">{{s.get('confirmed_removed',0)}} of {{tot}} removed</div></td>
+   <td class="px-3 py-3"><div class="flex gap-1.5 flex-wrap">{% if not has_auth(p) %}{{pill('Consent needed','amber')}}{% elif s.get('reappeared') %}{{pill('Reappeared','red')}}{% elif s.get('candidate') %}{{pill(s.get('candidate')~' to review','amber')}}{% else %}{{pill('In progress','green')}}{% endif %}</div></td>
+   <td class="px-3 py-3 text-right"><span class="font-semibold num text-[15px]">{{sc.value}}</span> <span class="text-[11px] font-mono text-stone-400">{{sc.grade}}</span></td>
+   <td class="px-2 text-stone-300 group-hover:text-ink dark:text-neutral-700 dark:group-hover:text-white">{{icon('chev')}}</td></tr>{% endfor %}</tbody></table></div>
+ {% else %}<div class="px-5 pb-5 text-[13px] text-stone-500">No one here yet. Add a person as Outside / managed, or send them an intake link.</div>{% endif %}
+</section>
 
 {% set cv = coverage() %}{% set CB = {'works':'bg-emerald-500','blocked':'bg-violet-500','unreachable_dc':'bg-amber-400','no_search':'bg-stone-300 dark:bg-neutral-600','broken':'bg-rose-500','dead':'bg-stone-200 dark:bg-neutral-700','unchecked':'bg-stone-100 dark:bg-neutral-800'} %}
 <a href="/sites" class="tile !p-0 mb-3 block group reveal"><div class="p-5 flex flex-wrap items-center gap-x-6 gap-y-3">

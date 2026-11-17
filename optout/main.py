@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites, scanjobs, shots, chain, backup, cfaccess, paths
+import db, profiles, remover, scanner, mailfilter, summary, calls, inbound, auth, crypto, esign, golive, charts, config, lifecycle, letters, mailer, automation, registries, regreq, updates, onboarding, mailbox, persondel, invites, scanjobs, shots, chain, backup, cfaccess, paths, circle, intake
 from db import now, event
 from crypto import enc
 import logsafe; logsafe.install()
@@ -28,6 +28,16 @@ def _people():
     if not u: return []
     if u["role"] == "admin": return C.execute("SELECT * FROM people ORDER BY COALESCE((SELECT 1 FROM users WHERE users.person_id=people.id AND users.role='admin'),0) DESC, rowid").fetchall()
     return C.execute("SELECT * FROM people WHERE id=?", (u["person_id"],)).fetchall()
+def _family_ids():
+    return [r["id"] for r in C.execute("SELECT id FROM people WHERE " + circle.SQL_FAMILY)]
+def _bound(pid, col="person_id"):
+    """SQL fragment for one person, or for the household when the overview is asking for a total."""
+    if pid: return f" AND {col}=?", (pid,)
+    ids = _family_ids()
+    if not ids: return " AND 0", ()
+    return f" AND {col} IN ({','.join('?' * len(ids))})", tuple(ids)
+def _nav(outside=False):
+    return [p for p in _people() if circle.outside(p) == bool(outside)]
 def _queue():
     ids = [p["id"] for p in _people()]
     if not ids: return []
@@ -52,8 +62,13 @@ OPEN = ("candidate", "approved", "submitted", "pending", "needs_human", "reappea
 def _domain(l):
     m = re.match(r"https?://([^/:]+)", l["url"] or ""); return (m.group(1) if m else l["site"]).removeprefix("www.")
 def stats(pid=None):
-    q = "SELECT status, COUNT(*) n FROM listings" + (" WHERE person_id=?" if pid else "") + " GROUP BY status"  # nosec B608
-    return {r["status"]: r["n"] for r in C.execute(q, (pid,) if pid else ())}
+    """Listing counts for one person, or for the household. Outside / managed people are not in the household total."""
+    if pid:
+        return {r["status"]: r["n"] for r in C.execute("SELECT status, COUNT(*) n FROM listings WHERE person_id=? GROUP BY status", (pid,))}
+    ids = _family_ids()
+    if not ids: return {}
+    q = f"SELECT status, COUNT(*) n FROM listings WHERE person_id IN ({','.join('?' * len(ids))}) GROUP BY status"  # nosec B608
+    return {r["status"]: r["n"] for r in C.execute(q, ids)}
 HIDE = ("not_me", "manual_check", "checked_clear")
 
 # ---------- security middleware ----------
@@ -218,9 +233,9 @@ def pw_change(r: Request, current: str = Form(""), password: str = Form(""), pas
 def family(r: Request, inv: str = "", who: str = "", err: str = "", sent: str = "", deleted: str = ""):
     auth.require_admin(r)
     users = {u["person_id"]: u for u in db.conn().execute("SELECT * FROM users").fetchall()}
-    people = C.execute("SELECT * FROM people ORDER BY COALESCE((SELECT 1 FROM users WHERE users.person_id=people.id AND users.role='admin'),0) DESC, rowid").fetchall()
+    people = [p for p in C.execute("SELECT * FROM people ORDER BY COALESCE((SELECT 1 FROM users WHERE users.person_id=people.id AND users.role='admin'),0) DESC, rowid").fetchall() if circle.family(p)]
     link = f"{(config.get('PUBLIC_URL') or str(r.base_url)).rstrip('/')}/invite/{inv}" if inv and re.fullmatch(r"[\w-]{20,64}", inv) else None
-    mc = mailbox.mail_counts(C)
+    mc = mailbox.mail_counts(C, [p["id"] for p in people])
     return T.TemplateResponse(r, "family.html", {"people": people, "users": users, "stats": {p["id"]: stats(p["id"]) for p in people}, "mc": mc, "invite_link": link, "who": who, "err": err[:200], "generated": None, "sent": sent[:120], "deleted": bool(deleted)})
 
 def _fam_err(pid, msg): return RedirectResponse(f"/family?who={pid}&err={quote(msg)}", 303)
@@ -257,17 +272,17 @@ def toggle(r: Request, pid: str, field: str, _=Depends(csrf)):
     return RedirectResponse("/family" if (r.headers.get("referer") or "").endswith("/family") else f"/person/{pid}", 303)
 
 def _heat(pid=None, days=84):
-    """Exposure/scan activity per day for the heatmap: listings seen + removal events."""
-    start = datetime.date.today() - datetime.timedelta(days=days - 1); cnt = {}
-    q = "SELECT substr(ts,1,10) d, COUNT(*) n FROM events WHERE ts>=?" + (" AND person_id=?" if pid else "") + " GROUP BY d"  # nosec B608
-    for r in C.execute(q, (start.isoformat(), pid) if pid else (start.isoformat(),)): cnt[r["d"]] = r["n"]
+    """Exposure/scan activity per day for the heatmap: listings seen + removal events. The overview counts the household only."""
+    start = datetime.date.today() - datetime.timedelta(days=days - 1); cnt = {}; frag, args = _bound(pid)
+    q = "SELECT substr(ts,1,10) d, COUNT(*) n FROM events WHERE ts>=?" + frag + " GROUP BY d"  # nosec B608
+    for r in C.execute(q, (start.isoformat(),) + tuple(args)): cnt[r["d"]] = r["n"]
     return [((start + datetime.timedelta(i)).isoformat(), cnt.get((start + datetime.timedelta(i)).isoformat(), 0)) for i in range(days)]
 def _domain(l):
     m = re.match(r"https?://([^/:]+)", l["url"] or ""); return (m.group(1) if m else l["site"]).removeprefix("www.")
 OPEN = ("candidate", "approved", "submitted", "pending", "needs_human", "reappeared", "blocked_auth")
 def _score(pid=None):
     if pid is None:
-        ps = [_score(r["id"]) for r in _people()]
+        ps = [_score(i) for i in _family_ids()]
         if not ps: return {"value": 100, "grade": "A", "open": 0, "removed": 0}
         v = round(sum(x["value"] for x in ps) / len(ps))
         return {"value": v, "grade": "ABCDEFG"[min(6, (100 - v) // 13)], "open": sum(x["open"] for x in ps), "removed": sum(x["removed"] for x in ps)}
@@ -278,17 +293,19 @@ def _months(pid=None, n=8):
     t = datetime.date.today().replace(day=1); ms = []
     for i in range(n - 1, -1, -1):
         y, m = divmod(t.year * 12 + t.month - 1 - i, 12); ms.append(f"{y}-{m+1:02d}")
-    q = "SELECT substr(first_seen,1,7) m, COUNT(*) n FROM listings WHERE status NOT IN ('not_me','manual_check','checked_clear')" + (" AND person_id=?" if pid else "") + " GROUP BY m"  # nosec B608
-    c = {r["m"]: r["n"] for r in C.execute(q, (pid,) if pid else ())}
-    q = "SELECT substr(confirmed_at,1,7) m, COUNT(*) n FROM listings WHERE confirmed_at IS NOT NULL" + (" AND person_id=?" if pid else "") + " GROUP BY m"  # nosec B608
-    rm = {r["m"]: r["n"] for r in C.execute(q, (pid,) if pid else ())}
+    frag, args = _bound(pid)
+    q = "SELECT substr(first_seen,1,7) m, COUNT(*) n FROM listings WHERE status NOT IN ('not_me','manual_check','checked_clear')" + frag + " GROUP BY m"  # nosec B608
+    c = {r["m"]: r["n"] for r in C.execute(q, args)}
+    q = "SELECT substr(confirmed_at,1,7) m, COUNT(*) n FROM listings WHERE confirmed_at IS NOT NULL" + frag + " GROUP BY m"  # nosec B608
+    rm = {r["m"]: r["n"] for r in C.execute(q, args)}
     return [(m, datetime.date(int(m[:4]), int(m[5:]), 1).strftime("%b"), c.get(m, 0), rm.get(m, 0)) for m in ms]
 def _weeks(pid=None, n=12):
     """New exposures found vs confirmed removed per week (Monday start)."""
     t = datetime.date.today(); t -= datetime.timedelta(t.weekday()); ws = [t - datetime.timedelta(weeks=i) for i in range(n - 1, -1, -1)]
+    frag, args = _bound(pid)
     def bucket(col, extra=""):
         out = [0] * n
-        for r in C.execute(f"SELECT substr({col},1,10) d FROM listings WHERE {col} IS NOT NULL {extra}" + (" AND person_id=?" if pid else ""), (pid,) if pid else ()):  # nosec B608
+        for r in C.execute(f"SELECT substr({col},1,10) d FROM listings WHERE {col} IS NOT NULL {extra}" + frag, args):  # nosec B608
             try: d = datetime.date.fromisoformat(r["d"])
             except Exception: continue
             k = (d - ws[0]).days // 7
@@ -296,20 +313,22 @@ def _weeks(pid=None, n=12):
         return out
     conf = [0] * n   # broker confirmations by email (removed / no records found), people-search listings and registry brokers alike
     # one point per request: brokers often send two confirmations (erasure + opt-out) for the same request
-    for r in C.execute("SELECT substr(MIN(ts),1,10) d FROM inbox WHERE kind='removed'" + (" AND person_id=?" if pid else " AND person_id IS NOT NULL") + " GROUP BY COALESCE(outbox_id, -listing_id, -1000000-id)", (pid,) if pid else ()):  # nosec B608
+    for r in C.execute("SELECT substr(MIN(ts),1,10) d FROM inbox WHERE kind='removed'" + frag + " GROUP BY COALESCE(outbox_id, -listing_id, -1000000-id)", args):  # nosec B608
         try: k = (datetime.date.fromisoformat(r["d"]) - ws[0]).days // 7
         except Exception: continue
         if 0 <= k < n: conf[k] += 1
     return [w.strftime("%b %-d") for w in ws], bucket("first_seen", "AND status NOT IN ('not_me','manual_check','checked_clear')"), bucket("confirmed_at"), conf
 T.env.globals.update(chart=charts.chart, weeks=_weeks)
 def _removals(pid=None):
-    import score as _sc; return _sc.removals(C, pid)
+    import score as _sc
+    if pid: return _sc.removals(C, pid)
+    return _sc.removals(C, pids=_family_ids())
 def _score_history(pid):
     import score as _sc; return [(datetime.date.fromisoformat(d).strftime("%b %-d"), v) for d, v in _sc.history(C, pid)]
 import score as _score_mod
 T.env.globals.update(removals=_removals, zip=zip, score_history=_score_history, SCORE_NOTE=_score_mod.FORMULA_NOTE)
 T.env.globals.update(score=_score, months=_months, OPEN=OPEN, today=lambda: datetime.date.today())
-T.env.globals.update(fam_list=_people, hq=_queue, heat=_heat, domain=_domain, pstats=lambda pid=None: stats(pid))
+T.env.globals.update(fam_list=lambda: _nav(False), outside_list=lambda: _nav(True), circle_of=circle.of, hq=_queue, heat=_heat, domain=_domain, pstats=lambda pid=None: stats(pid))
 import math; T.env.filters.update(ord=ord, cos=math.cos, sin=math.sin); T.env.tests["startingwith"] = lambda s, p: str(s).startswith(p)
 T.env.filters["j"] = lambda s: json.loads(s or "{}")
 
@@ -339,14 +358,26 @@ def _brokers():
         import yaml; d = yaml.safe_load(open(__import__("paths").broker_out())); return {"total": d["total"], "src": d["source_counts"], "ts": d["generated"]}
     except Exception: return None
 
+def _intake_url(r, tok):
+    return intake.link_for(tok, str(r.base_url)) if tok and re.fullmatch(r"[\w-]{20,80}", tok) else None
+
 @app.get("/", response_class=HTMLResponse)
 def home(r: Request):
     u = r.state.user
     if u["role"] != "admin": return RedirectResponse(f"/person/{u['person_id']}" + ("?pw=1" if r.query_params.get("pw") else ""), 303)
-    people = C.execute("SELECT * FROM people ORDER BY COALESCE((SELECT 1 FROM users WHERE users.person_id=people.id AND users.role='admin'),0) DESC, rowid").fetchall()
-    return T.TemplateResponse(r, "home.html", {"people": people, "stats": {p["id"]: stats(p["id"]) for p in people}, "all": stats(),
-        "brokers": _brokers(), "events": C.execute("SELECT * FROM events WHERE kind NOT IN ('scan_finished','scan_result') ORDER BY ts DESC, id DESC LIMIT 12").fetchall(),
-        "alerts": C.execute("SELECT l.*, p.full_name FROM listings l JOIN people p ON p.id=l.person_id WHERE status='reappeared'").fetchall(), "setup_card": onboarding.show_card(C, u)})
+    rows = C.execute("SELECT * FROM people ORDER BY COALESCE((SELECT 1 FROM users WHERE users.person_id=people.id AND users.role='admin'),0) DESC, rowid").fetchall()
+    people = [p for p in rows if circle.family(p)]; outside = [p for p in rows if circle.outside(p)]
+    ids = [p["id"] for p in people]
+    if ids:
+        ph = ",".join("?" * len(ids))
+        events = C.execute(f"SELECT * FROM events WHERE kind NOT IN ('scan_finished','scan_result') AND (person_id IS NULL OR person_id IN ({ph})) ORDER BY ts DESC, id DESC LIMIT 12", ids).fetchall()  # nosec B608
+        alerts = C.execute(f"SELECT l.*, p.full_name FROM listings l JOIN people p ON p.id=l.person_id WHERE status='reappeared' AND l.person_id IN ({ph})", ids).fetchall()  # nosec B608
+    else:
+        events = C.execute("SELECT * FROM events WHERE kind NOT IN ('scan_finished','scan_result') AND person_id IS NULL ORDER BY ts DESC, id DESC LIMIT 12").fetchall()
+        alerts = []
+    return T.TemplateResponse(r, "home.html", {"people": people, "outside": outside, "stats": {p["id"]: stats(p["id"]) for p in rows}, "all": stats(),
+        "brokers": _brokers(), "events": events, "alerts": alerts, "setup_card": onboarding.show_card(C, u),
+        "intake_link": _intake_url(r, r.query_params.get("ink", "")), "intake_sent": (r.query_params.get("sent") or "")[:40], "intake_err": (r.query_params.get("ierr") or "")[:200]})
 
 def _invite_ctx(r, p, inv, ist):
     if r.state.user["role"] != "admin" or p["id"] == r.state.user["person_id"]: return {"invite": None}
@@ -356,12 +387,12 @@ def _invite_ctx(r, p, inv, ist):
     return {"invite": {"label": lab, "color": col, "detail": det, "link": link, "just": ist if ist in ("sent", "pending", "failed") else "", "email": _invite_email(p["id"]), "ready": invites.email_ready(), "note": invites.DRY_NOTE}}
 
 @app.get("/person/{pid}", response_class=HTMLResponse)
-def person(r: Request, pid: str, f: str = "", saved: str = "", signed: str = "", welcome: str = "", delerr: str = "", inv: str = "", ist: str = ""):
+def person(r: Request, pid: str, f: str = "", saved: str = "", signed: str = "", welcome: str = "", delerr: str = "", inv: str = "", ist: str = "", ink: str = "", cerr: str = "", istate: str = ""):
     p = _person_for(r, pid)
     if f and f not in STATUS: f = ""
     q = "SELECT * FROM listings WHERE person_id=?" + (" AND status=?" if f else " AND status NOT IN ('not_me','checked_clear')") + " ORDER BY CASE status WHEN 'reappeared' THEN 0 WHEN 'candidate' THEN 1 ELSE 2 END, COALESCE(score,0) DESC, last_seen DESC"  # nosec B608
     return T.TemplateResponse(r, "person.html", {"p": p, "prof": profiles.get(p), "stats": stats(pid), "f": f, "listings": C.execute(q, (pid, f) if f else (pid,)).fetchall(),
-        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p), "delerr": delerr[:10], "scanjob": scanjobs.progress(pid), "thumbs": shots.thumbs(C, [x["id"] for x in C.execute("SELECT id FROM listings WHERE person_id=?", (pid,)).fetchall()]) if consented(p) else {}, "locked": not consented(p), "lock_msg": ("Sign your authorization to start. Nothing will be scanned or removed until then." if r.state.user["person_id"] == pid else CONSENT_MSG.format(name=p["first"] or p["full_name"])), **_invite_ctx(r, p, inv, ist)})
+        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test','intake') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p), "delerr": delerr[:10], "scanjob": scanjobs.progress(pid), "thumbs": shots.thumbs(C, [x["id"] for x in C.execute("SELECT id FROM listings WHERE person_id=?", (pid,)).fetchall()]) if consented(p) else {}, "locked": not consented(p), "lock_msg": ("Sign your authorization to start. Nothing will be scanned or removed until then." if r.state.user["person_id"] == pid else CONSENT_MSG.format(name=p["first"] or p["full_name"])), "intake_link": _intake_url(r, ink), "cerr": cerr[:200], "istate": istate[:40], "paper": bool(p["auth_pdf"]) and intake.paper_ok(p), **_invite_ctx(r, p, inv, ist)})
 
 def _invite_email(pid):
     u = db.conn().execute("SELECT email FROM users WHERE person_id=?", (pid,)).fetchone()
@@ -389,8 +420,8 @@ def person_delete(r: Request, pid: str, confirm_name: str = Form(""), _=Depends(
 def profile_page(r: Request, pid: str, saved: str = "", onboard: str = ""):
     p = _person_for(r, pid)
     prof = profiles.get(p); suggested = False
-    if not prof["relatives"]:   # default: the other family members, still editable before saving
-        prof["relatives"] = [x["full_name"] for x in C.execute("SELECT full_name FROM people WHERE id<>? ORDER BY rowid", (pid,)).fetchall() if x["full_name"] and len(x["full_name"].split()) >= 2][:20]; suggested = bool(prof["relatives"])
+    if not prof["relatives"] and circle.family(p):   # household only: never copy an outside person's name onto a family profile
+        prof["relatives"] = [x["full_name"] for x in C.execute("SELECT full_name FROM people WHERE id<>? AND " + circle.SQL_FAMILY + " ORDER BY rowid", (pid,)).fetchall() if x["full_name"] and len(x["full_name"].split()) >= 2][:20]; suggested = bool(prof["relatives"])
     return T.TemplateResponse(r, "profile.html", {"p": p, "prof": prof, "errors": [], "saved": bool(saved), "suggested": suggested, "onboard": bool(onboard)})
 
 @app.post("/person/{pid}/profile")
@@ -500,22 +531,25 @@ T.env.globals.update(next_scan=_next_scan, pevents=lambda pid, n=14: C.execute("
 def add_form(r: Request): auth.require_admin(r); return T.TemplateResponse(r, "add.html", {"errors": [], "v": {}, "email_ready": invites.email_ready(), "me_exists": bool(C.execute("SELECT 1 FROM people WHERE id=?", (r.state.user["person_id"],)).fetchone())})
 
 @app.post("/add")
-def add(r: Request, full_name: str = Form(...), city: str = Form(...), state: str = Form("CA"), needs_auth: str = Form("1"), email: str = Form(""), _=Depends(csrf)):
+def add(r: Request, full_name: str = Form(...), city: str = Form(...), state: str = Form("CA"), needs_auth: str = Form("1"), email: str = Form(""), relationship: str = Form("family"), _=Depends(csrf)):
     auth.require_admin(r); parts = full_name.split(); email = email.strip().lower()
     me_pid = r.state.user["person_id"]; is_me = needs_auth == "0"
+    circ = circle.FAMILY if is_me or relationship != circle.OUTSIDE else circle.OUTSIDE
     prof, errors = profiles.validate({"name_kind": ["legal"], "name_first": [" ".join(parts[:-1])], "name_middle": [""], "name_last": [parts[-1] if parts else ""],
                                       "addr_street": [""], "addr_city": [city], "addr_state": [state], "addr_current": ["0"]})
     if len(parts) < 2: errors.insert(0, "Enter a first and last name.")
     if is_me and C.execute("SELECT 1 FROM people WHERE id=?", (me_pid,)).fetchone(): errors.append("Your own profile already exists. Anyone else needs an email so they can accept the invite.")
-    if not is_me and not profiles.EMAIL_OK.match(email): errors.append("Enter their email. They get an invite to set a password and sign before anything is filed.")
-    if errors: return T.TemplateResponse(r, "add.html", {"errors": errors, "v": {"full_name": full_name, "city": city, "state": state, "email": email}, "email_ready": invites.email_ready()}, status_code=400)
+    if not is_me and circ == circle.FAMILY and not profiles.EMAIL_OK.match(email): errors.append("Enter their email. They get an invite to set a password and sign before anything is filed.")
+    if not is_me and circ == circle.OUTSIDE and email and not profiles.EMAIL_OK.match(email): errors.append("That email is not valid. Leave it blank if you will send them an intake link yourself.")
+    if errors: return T.TemplateResponse(r, "add.html", {"errors": errors, "v": {"full_name": full_name, "city": city, "state": state, "email": email, "relationship": circ, "needs_auth": needs_auth}, "email_ready": invites.email_ready(), "me_exists": bool(C.execute("SELECT 1 FROM people WHERE id=?", (me_pid,)).fetchone())}, status_code=400)
     if is_me: pid = me_pid
     else:
         base = re.sub(r"[^a-z0-9]", "", parts[0].lower())[:24] or "member"; pid = base; i = 2
         while C.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone() or db.conn().execute("SELECT 1 FROM users WHERE username=?", (pid,)).fetchone(): pid = f"{base}{i}"; i += 1
-        prof["emails"] = [email]
-    profiles.new_person(C, pid, prof, not is_me); event(C, "person_added", "", pid)
+        if email: prof["emails"] = [email]
+    profiles.new_person(C, pid, prof, not is_me, circ); event(C, "person_added", circ, pid)
     if is_me: return RedirectResponse(f"/person/{pid}/profile", 303)
+    if circ == circle.OUTSIDE: return RedirectResponse(f"/person/{pid}?outside=1", 303)
     tok, st = invites.send(pid, email, " ".join(parts[:-1]), r.state.user["username"], str(r.base_url))
     return RedirectResponse(f"/person/{pid}?inv={tok}&ist={st}", 303)
 
@@ -616,9 +650,112 @@ async def inbound_email(r: Request):
 def _can_sign(r, pid): u = r.state.user; return bool(u) and u["person_id"] == pid   # only the person themself, never the admin for someone else
 
 @app.get("/person/{pid}/authorize", response_class=HTMLResponse)
-def esign_page(r: Request, pid: str, onboard: str = ""):
+def esign_page(r: Request, pid: str, onboard: str = "", cerr: str = "", uploaded: str = ""):
     p = _person_for(r, pid)
-    return T.TemplateResponse(r, "esign.html", {"p": p, "can_sign": _can_sign(r, pid), "error": None, "onboard": bool(onboard)})
+    return T.TemplateResponse(r, "esign.html", {"p": p, "can_sign": _can_sign(r, pid), "error": None, "onboard": bool(onboard), "cerr": cerr[:200], "uploaded": uploaded == "1", "paper": intake.paper_ok(p)})
+
+@app.post("/person/{pid}/circle")
+def set_circle(r: Request, pid: str, relationship: str = Form(...), _=Depends(csrf)):
+    auth.require_admin(r); _person_for(r, pid)
+    if relationship not in (circle.FAMILY, circle.OUTSIDE): raise HTTPException(400, "Pick Family or Outside / managed.")
+    C.execute("UPDATE people SET circle=? WHERE id=?", (relationship, pid)); C.commit(); event(C, "circle_set", relationship, pid)
+    return RedirectResponse(f"/person/{pid}", 303)
+
+@app.post("/person/{pid}/intake-link")
+def person_intake_link(r: Request, pid: str, send: str = Form(""), email: str = Form(""), _=Depends(csrf)):
+    """Make a single-use intake link. Email goes out only when send=1."""
+    auth.require_admin(r); p = _person_for(r, pid)
+    to = (email or _invite_email(pid) or "").strip().lower()
+    if send == "1" and not profiles.EMAIL_OK.match(to):
+        return RedirectResponse(f"/person/{pid}?cerr=" + quote("Enter an email to send the link. Generating a link does not send anything."), 303)
+    tok, _, _ = intake.create(pid, circle.of(p)); sent = ""
+    if send == "1":
+        subj, text, h = mailer.intake_notice(p["first"] or "there", intake.link_for(tok, str(r.base_url)))
+        st = mailer.send(to, subj, text, h, kind="intake", person_id=pid, family=True)
+        sent = "sent" if st == "sent" else "pending"
+        event(C, "intake_mailed" if sent == "sent" else "intake_mail_pending", "", pid)
+    return RedirectResponse(f"/person/{pid}?ink={tok}&istate={sent}#intake-link", 303)
+
+@app.post("/intake/new")
+def intake_new(r: Request, relationship: str = Form("outside"), email: str = Form(""), send: str = Form(""), _=Depends(csrf)):
+    """A link for someone not in the database yet. Their profile is created when they submit the form. Nothing is emailed unless Send is pressed."""
+    auth.require_admin(r)
+    circ = circle.FAMILY if relationship == circle.FAMILY else circle.OUTSIDE
+    to = email.strip().lower()
+    if send == "1" and not profiles.EMAIL_OK.match(to):
+        return RedirectResponse("/?ierr=" + quote("Enter an email to send the link. Copy does not send anything."), 303)
+    tok, _, _ = intake.create(None, circ); sent = ""
+    if send == "1":
+        subj, text, h = mailer.intake_notice("there", intake.link_for(tok, str(r.base_url)))
+        st = mailer.send(to, subj, text, h, kind="intake", family=True)
+        sent = "sent" if st == "sent" else "pending"
+    return RedirectResponse(f"/?ink={tok}&sent={sent}#intake-new", 303)
+
+def _intake_closed(r, st):
+    msg = "This link was already used. It cannot be opened again." if st == "used" else "This link has expired. Ask for a new one."
+    return T.TemplateResponse(r, "intake_done.html", {"first": "", "closed": msg}, status_code=410)
+
+def _intake_wait(r):
+    return T.TemplateResponse(r, "intake_done.html", {"first": "", "closed": "Too many attempts from this network. Wait a few minutes and try again."}, status_code=429)
+
+_INTAKE_FIELDS = {"full_name", "prev_name", "addr_street", "addr_city", "addr_state", "addr_current", "phone", "email", "age_min", "age_max", "typed_name"}
+def _intake_view(r, tok, row, error=None, posted=None, status=200):
+    p = C.execute("SELECT * FROM people WHERE id=?", (row["person_id"],)).fetchone() if row and row["person_id"] else None
+    return T.TemplateResponse(r, "intake.html", {"tok": tok, "error": error, "p": p, "prof": profiles.get(p) if p else None, "posted": posted or {}, "link_csrf": row["csrf"], "statement": esign.STATEMENT}, status_code=status)
+
+@app.get("/invite/intake/{tok}", response_class=HTMLResponse)
+def intake_page(r: Request, tok: str):
+    if intake.limited(auth.client_ip(r), "get"): return _intake_wait(r)
+    row = intake.fetch(tok); st = intake.state(row)
+    if st == "missing": raise HTTPException(404)
+    if st != "ok": return _intake_closed(r, st)
+    return _intake_view(r, tok, row)
+
+@app.post("/invite/intake/{tok}")
+async def intake_submit(r: Request, tok: str):
+    if intake.limited(auth.client_ip(r), "post"): return _intake_wait(r)
+    row = intake.fetch(tok); st = intake.state(row)
+    if st == "missing": raise HTTPException(404)
+    if st != "ok": return _intake_closed(r, st)
+    form = await r.form()
+    data = {k: [str(x) for x in form.getlist(k)] for k in form.keys()}
+    posted = {k: data.get(k, []) for k in _INTAKE_FIELDS}
+    if sum(len(vs) for vs in data.values()) > 80 or any(len(x) > (20000 if k == "sig" else 500) for k, vs in data.items() for x in vs):
+        return _intake_view(r, tok, row, "That form is too large.", posted, 400)
+    if not intake.csrf_ok(row, (data.get("csrf") or [""])[0]):
+        return _intake_view(r, tok, row, "That form expired. Reload the page and try again.", posted, 400)
+    prof, errors = profiles.intake_profile(data)
+    tainted = any(profiles.sensitive_key(k) for k in data) or any(profiles.forbidden(x) for k, vs in data.items() if k not in ("sig", "csrf") and not str(k).startswith("phone") for x in vs)
+    if tainted:
+        return _intake_view(r, tok, row, errors[0] if errors else "That form was rejected.", {}, 400)   # do not echo the rejected value back
+    typed = ((data.get("typed_name") or [""])[0])[:120]
+    legal = profiles.full(prof["names"][0]) if prof["names"] else ""
+    strokes = esign.parse_strokes((data.get("sig") or ["[]"])[0][:20000])
+    if (data.get("agree") or [""])[0] != "yes": errors.append("Tick the box to confirm the authorization.")
+    elif legal and not esign.name_matches(typed, legal): errors.append("Type your full legal name exactly as you entered it above.")
+    if not strokes: errors.append("Draw your signature in the box (finger, pen or mouse).")
+    if errors: return _intake_view(r, tok, row, " ".join(errors[:4]), posted, 400)
+    pid = intake.apply(row, prof, typed.strip(), auth.client_ip(r), (r.headers.get("user-agent") or "")[:400], strokes)
+    _autoscan(pid, "intake signed")
+    return T.TemplateResponse(r, "intake_done.html", {"first": prof["names"][0]["first"], "closed": ""})
+
+@app.post("/person/{pid}/authorization/upload")
+async def auth_upload(r: Request, pid: str, file: UploadFile = File(...), _=Depends(csrf)):
+    auth.require_admin(r); _person_for(r, pid)
+    data = await file.read(intake.MAX_BYTES + 1)
+    _path, err = intake.save_paper(pid, file.filename or "", data)
+    if err: return RedirectResponse(f"/person/{pid}/authorize?cerr=" + quote(err), 303)
+    return RedirectResponse(f"/person/{pid}/authorize?uploaded=1", 303)
+
+@app.post("/person/{pid}/authorization/verify")
+def auth_verify(r: Request, pid: str, _=Depends(csrf)):
+    """Mark a paper authorization as consent. Refuses when no file is attached. Never sets consent from a bare checkbox."""
+    auth.require_admin(r); _person_for(r, pid)
+    err = intake.mark_verified(pid)
+    if err: return RedirectResponse(f"/person/{pid}/authorize?cerr=" + quote(err), 303)
+    p = C.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
+    if p and consented(p): _autoscan(pid, "paper authorization verified")
+    return RedirectResponse(f"/person/{pid}?signed=1", 303)
 
 def _mark_onboarded(r):
     u = r.state.user
@@ -634,9 +771,9 @@ def esign_submit(r: Request, pid: str, typed_name: str = Form(""), agree: str = 
     strokes = esign.parse_strokes(sig)
     if not err and not strokes: err = "Draw your signature in the box (finger, pen or mouse)."
     if err: return T.TemplateResponse(r, "esign.html", {"p": p, "can_sign": True, "error": err, "onboard": bool(onboard)}, status_code=400)
-    ts = now(); ip = auth.client_ip(r); u = r.state.user
-    esign.write_pdf(p, typed_name.strip(), ts, ip, u["username"], strokes)
-    C.execute("UPDATE people SET esign_name=?, esign_at=?, esign_ip=?, esign_user=?, esign_sig=? WHERE id=?", (enc(typed_name.strip()), ts, enc(ip), u["username"], enc(json.dumps(strokes)), pid))
+    ts = now(); ip = auth.client_ip(r); u = r.state.user; ua = (r.headers.get("user-agent") or "")[:400]
+    esign.write_pdf(p, typed_name.strip(), ts, ip, u["username"], strokes, ua=ua)
+    C.execute("UPDATE people SET esign_name=?, esign_at=?, esign_ip=?, esign_user=?, esign_sig=?, esign_ua=?, consent_verified_at=? WHERE id=?", (enc(typed_name.strip()), ts, enc(ip), u["username"], enc(json.dumps(strokes)), enc(ua), ts, pid))
     C.execute("UPDATE listings SET status='candidate' WHERE person_id=? AND status='blocked_auth'", (pid,)); C.commit()
     event(C, "auth_esigned", f"@{u['username']}", pid)
     if onboard: return RedirectResponse(f"/person/{pid}/profile?onboard=1", 303)   # required 'Your details' step; the first scan starts after it
@@ -761,7 +898,7 @@ def set_sender(r: Request, pid: str, send_from: str = Form(""), _=Depends(csrf))
 @app.post("/family/generate-logins", response_class=HTMLResponse)
 def gen_logins(r: Request, _=Depends(csrf)):
     auth.require_admin(r)
-    rows = auth.generate_family_logins(db.conn(), C.execute("SELECT * FROM people ORDER BY rowid").fetchall())
+    rows = auth.generate_family_logins(db.conn(), [p for p in C.execute("SELECT * FROM people ORDER BY rowid").fetchall() if circle.family(p)])
     event(C, "logins_generated", f"{len(rows)} accounts")
     resp = family(r); ctx = {k: v for k, v in resp.context.items() if k != "request"}; ctx["generated"] = rows   # shown once, never stored; page is Cache-Control: no-store
     return T.TemplateResponse(r, "family.html", ctx)
@@ -830,8 +967,8 @@ async def heartbeat_save(r: Request, _=Depends(csrf)):
 
 @app.get("/admin/heartbeat/weekly")
 def weekly_raw(r: Request, pid: str = ""):
-    auth.require_admin(r); people = C.execute("SELECT * FROM people ORDER BY rowid").fetchall(); sel = [p for p in people if p["id"] == pid]
-    h = summary.build(C, sel or people, family=not sel)[1] if people else "<p style='font-family:sans-serif;padding:24px'>Add a family member to preview the weekly email.</p>"
+    auth.require_admin(r); people = C.execute("SELECT * FROM people ORDER BY rowid").fetchall(); fam = [p for p in people if circle.family(p)]; sel = [p for p in people if p["id"] == pid]
+    h = summary.build(C, sel or fam, family=not sel)[1] if (sel or fam) else "<p style='font-family:sans-serif;padding:24px'>Add a family member to preview the weekly email.</p>"
     return HTMLResponse(h, headers={"Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'"})
 
 @app.get("/admin/heartbeat/broker-email")
@@ -852,7 +989,7 @@ def weekly_test(r: Request, _=Depends(csrf)):
     auth.require_admin(r); u = r.state.user; p = C.execute("SELECT * FROM people WHERE id=?", (u["person_id"],)).fetchone()
     to = (p and p["email"]) or u["email"]
     if not to: return RedirectResponse("/admin/heartbeat?tab=settings&msg=" + quote("Add your email to your profile first."), 303)
-    people = C.execute("SELECT * FROM people ORDER BY rowid").fetchall(); subj, h, t = summary.build(C, people, family=True)
+    people = [p for p in C.execute("SELECT * FROM people ORDER BY rowid").fetchall() if circle.family(p)]; subj, h, t = summary.build(C, people, family=True)
     st = mailer.send(to, "[Test] " + subj, t, h, kind="weekly_test")
     return RedirectResponse("/admin/heartbeat?tab=settings&msg=" + quote(f"Test weekly email to {to}: {st}."), 303)
 

@@ -2,7 +2,12 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
-## [Unreleased]
+## [1.5.0] - 2026-11-17
+
+### Added
+- **Outside / managed people.** Add someone as Family or Outside / managed, and switch them later. Outside people get the same scans, evidence, approvals, removals, re-scans and privacy score, run from the admin login, and stay off the family list, the family totals, the family privacy-score average and the Monday family email. They have their own section on the overview.
+- **No-login intake link.** From the overview or a person's page, generate a private single-use link (it expires in 7 days) and copy it. It is emailed only when you press Email the link. The person opens `/invite/intake/…` with no account, enters their name, previous names, cities and addresses, phones, emails and an optional age range, and e-signs the authorized-agent authorization (typed name, drawn signature, checkbox). The server records the time, IP address and browser. The profile is created or updated and the signed PDF is stored on them. The link cannot be used again.
+- **Paper authorization.** Upload a photo or PDF of a form they signed on paper, then mark consent verified. Marking consent with nothing attached is refused. No removal goes out for anyone, family or outside, without that person's e-signature or a verified uploaded authorization.
 
 ### Fixed
 - `python -m optout.backup export` into `DATA_DIR` no longer packs a partial copy of the file it is writing (backup files are never included in a backup). Heartbeat exports were not affected.

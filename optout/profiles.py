@@ -159,5 +159,82 @@ def seed(c, d=os.environ.get("PROFILES_DIR","/config/profiles")):
         cols = ",".join(p); c.execute(f"INSERT INTO people({cols}) VALUES({','.join('?'*len(p))})", list(p.values()))  # nosec B608
     c.commit()
 
-def new_person(c, pid, prof, needs_auth):
-    c.execute("INSERT INTO people(id,enabled,needs_auth,state) VALUES(?,1,?,?)", (pid, int(needs_auth), "CA")); save(c, pid, prof)
+def new_person(c, pid, prof, needs_auth, circle="family"):
+    if circle not in ("family", "outside"): circle = "family"
+    c.execute("INSERT INTO people(id,enabled,needs_auth,state,circle) VALUES(?,1,?,?,?)", (pid, int(needs_auth), "CA", circle)); save(c, pid, prof)
+
+# Field names the public intake form must refuse. Matched on the key, before any value is stored.
+SENSITIVE_KEY = re.compile(r"(ssn|social|date_?of_?birth|birth_?date|birthdate|birthday|\bdob\b|driver|licen[cs]e|passport|id_?number|tax_?id|national_?id|full_?dob)", re.I)
+
+def sensitive_key(k):
+    return bool(SENSITIVE_KEY.search((k or "").replace("-", "_")))
+
+def intake_profile(form):
+    """Profile from the no-login intake form. Name is required. Previous names, addresses, phones, emails and an age range are optional.
+    Returns (profile, errors). A Social Security number, full date of birth or ID field is rejected and nothing from it is kept.
+    This form has no birth-year field and no place to type an SSN, date of birth or ID number."""
+    err = []
+    empty = {"names": [], "addresses": [], "phones": [], "emails": [], "relatives": [], "birth_year": None, "age_min": None, "age_max": None}
+    for k in form:
+        if sensitive_key(k):
+            err.append("This form does not accept Social Security numbers, full dates of birth, or driver's license or other ID numbers.")
+            return empty, err
+    for k, vals in form.items():
+        if k in ("csrf", "sig", "agree", "typed_name"): continue
+        for v in vals:
+            why = forbidden(v) if not str(k).startswith("phone") else (IDWORDS.search(str(v)) and "looks like an ID label")
+            if why:
+                err.append("A value was rejected because it looks like a Social Security number, a full date of birth, or an ID number. Nothing was saved.")
+                return empty, err
+    g = lambda k: [str(x).strip() for x in form.get(k, [])]
+    full = (g("full_name") or [""])[0]
+    parts = full.split()
+    names = []
+    if len(parts) < 2 or not all(NAME_OK.match(x) for x in parts):
+        err.append("Enter a first and last name (letters, spaces, apostrophes and hyphens only).")
+    elif len(parts) == 2:
+        names = [{"kind": "legal", "first": parts[0], "middle": "", "last": parts[1]}]
+    else:
+        names = [{"kind": "legal", "first": parts[0], "middle": " ".join(parts[1:-1]), "last": parts[-1]}]
+    for raw in g("prev_name"):
+        if not raw: continue
+        bits = raw.split()
+        if len(bits) < 2 or not all(NAME_OK.match(x) for x in bits):
+            err.append("Each previous name needs a first and last name (letters, spaces, apostrophes and hyphens only)."); continue
+        names.append({"kind": "variant", "first": bits[0], "middle": " ".join(bits[1:-1]), "last": bits[-1]})
+    cur_idx = (g("addr_current") or ["0"])[0]
+    addrs = []
+    streets, cities, states = g("addr_street"), g("addr_city"), g("addr_state")
+    for i in range(max(len(streets), len(cities), len(states))):
+        st = streets[i] if i < len(streets) else ""
+        city = cities[i] if i < len(cities) else ""
+        state = (states[i] if i < len(states) else "") or ""
+        if not (st or city or state): continue
+        state = (state or "CA").upper()
+        if not city: err.append("Each address that you start needs a city, or leave the whole row blank."); continue
+        if not NAME_OK.match(city): err.append(f"City “{city}”: letters only."); continue
+        if st and not STREET_OK.match(st): err.append(f"Street “{st}” has unsupported characters."); continue
+        if state not in STATES: err.append(f"State “{state}” is not a US state code."); continue
+        addrs.append({"street": st, "city": city, "state": state, "current": str(i) == cur_idx})
+    if addrs and not any(a["current"] for a in addrs): addrs[0]["current"] = True
+    phones = []
+    for v in g("phone"):
+        if not v: continue
+        d = norm_phone(v)
+        if not d: err.append(f"Phone “{v}” must be a 10-digit US number."); continue
+        if d not in phones: phones.append(d)
+    emails = []
+    for v in g("email"):
+        if not v: continue
+        if not EMAIL_OK.match(v): err.append(f"Email “{v}” is not valid."); continue
+        if v.lower() not in emails: emails.append(v.lower())
+    lo, hi = (g("age_min") or [""])[0], (g("age_max") or [""])[0]
+    prof = {"names": names, "addresses": addrs, "phones": phones, "emails": emails, "relatives": [], "birth_year": None, "age_min": None, "age_max": None}
+    if lo or hi:
+        if not (lo.isdigit() and hi.isdigit()) or not (0 < int(lo) <= int(hi) <= 120):
+            err.append("Age range must be two whole numbers, minimum no greater than maximum, or leave both blank.")
+        else:
+            prof["age_min"], prof["age_max"] = int(lo), int(hi)
+    for k, n in MAX.items():
+        if len(prof[k]) > n: err.append(f"At most {n} {k}.")
+    return prof, err

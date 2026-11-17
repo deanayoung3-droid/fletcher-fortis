@@ -133,9 +133,18 @@ def history(c, pid, days=30):
 FOUND_EXCLUDE = ("not_me", "manual_check", "checked_clear")
 CONTACTED = ("sent", "acknowledged", "needs_info", "denied", "completed")
 
-def _reg_reply_dates(c, pid=None):
+def _scope(pid=None, pids=None, col="person_id"):
+    """SQL fragment + params limiting rows to one person, a set of people, or everyone."""
+    if pid: return f" AND {col}=?", (pid,)
+    if pids is not None:
+        if not pids: return " AND 0", ()
+        return f" AND {col} IN ({','.join('?' * len(pids))})", tuple(pids)
+    return "", ()
+
+def _reg_reply_dates(c, pid=None, pids=None):
     """{reg_request id: date of the first broker reply that confirmed deletion / no records}, matched like regreq.sync_replies."""
-    try: reqs = c.execute("SELECT id, person_id, target, outbox_id FROM reg_requests WHERE status='completed'" + (" AND person_id=?" if pid else ""), (pid,) if pid else ()).fetchall()  # nosec B608
+    extra, args = _scope(pid, pids)
+    try: reqs = c.execute("SELECT id, person_id, target, outbox_id FROM reg_requests WHERE status='completed'" + extra, args).fetchall()  # nosec B608
     except Exception: return {}
     by_oid = {r["outbox_id"]: r["id"] for r in reqs if r["outbox_id"]}; by_addr = {}
     for r in reqs: by_addr.setdefault((r["person_id"], (r["target"] or "").lower()), []).append(r["id"])
@@ -147,20 +156,22 @@ def _reg_reply_dates(c, pid=None):
         if q and q not in out: out[q] = (i["ts"] or "")[:10]
     return out
 
-def removals(c, pid=None, days=12):
+def removals(c, pid=None, days=12, pids=None):
     """Removed = verified by re-scan (listing status confirmed_removed) + confirmed by the broker by email (people-search listings still
     waiting for their re-scan, and registered brokers that confirmed deletion). 'No records found' is shown separately as clear: nothing
-    was removed, but nothing is exposed there either. Denominator = exposures found + registered brokers contacted that may hold data."""
-    w = " AND person_id=?" if pid else ""; a = (pid,) if pid else ()
+    was removed, but nothing is exposed there either. Denominator = exposures found + registered brokers contacted that may hold data.
+    Pass pids to total a specific set of people (the family) without counting anyone else."""
+    w, a = _scope(pid, pids)
+    lw, la = _scope(pid, pids, "l.person_id")
     found = c.execute(f"SELECT COUNT(*) FROM listings WHERE status NOT IN {FOUND_EXCLUDE}" + w, a).fetchone()[0]  # nosec B608
     verified = {r["id"]: (r["confirmed_at"] or "")[:10] for r in c.execute("SELECT id, confirmed_at FROM listings WHERE status='confirmed_removed'" + w, a)}  # nosec B608
     lconf, lclear = {}, {}
-    for r in c.execute("SELECT i.listing_id, i.kind, MIN(i.ts) ts FROM inbox i JOIN listings l ON l.id=i.listing_id WHERE i.kind IN ('removed','not_found') AND l.status IN ('submitted','pending')" + (" AND l.person_id=?" if pid else "") + " GROUP BY i.listing_id, i.kind", a):  # nosec B608
+    for r in c.execute("SELECT i.listing_id, i.kind, MIN(i.ts) ts FROM inbox i JOIN listings l ON l.id=i.listing_id WHERE i.kind IN ('removed','not_found') AND l.status IN ('submitted','pending')" + lw + " GROUP BY i.listing_id, i.kind", la):  # nosec B608
         (lconf if r["kind"] == "removed" else lclear).setdefault(r["listing_id"], (r["ts"] or "")[:10])
     for k in lconf: lclear.pop(k, None)
     try: regs = c.execute("SELECT id, status, reply_kind, updated FROM reg_requests WHERE status IN %s" % (CONTACTED,) + w, a).fetchall()  # nosec B608
     except Exception: regs = []
-    dates = _reg_reply_dates(c, pid) if regs else {}
+    dates = _reg_reply_dates(c, pid, pids) if regs else {}
     rconf = {r["id"]: dates.get(r["id"]) or (r["updated"] or "")[:10] for r in regs if r["status"] == "completed" and r["reply_kind"] != "not_found"}
     rclear = {r["id"]: dates.get(r["id"]) or (r["updated"] or "")[:10] for r in regs if r["status"] == "completed" and r["reply_kind"] == "not_found"}
     contacted = len(regs)

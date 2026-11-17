@@ -4,7 +4,8 @@ PATTERNS = [(re.compile(r"(https?://[^/\s\"']+)/[^\s\"']*"), r"\1/<path>"),  # b
             (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "<email>"),
             (re.compile(r"\(?\b\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}\b"), "<phone>"),
             (re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"), "<number>"),
-            (re.compile(r"/invite/[\w-]+"), "/invite/<token>"),
+            (re.compile(r"/invite/(?:intake/)?[\w-]+"), "/invite/<token>"),
+            (re.compile(r"([?&](?:inv|ink)=)[^&\s]+"), r"\1<redacted>"),
             (re.compile(r"/(person|family)/[^/\s\"?]+"), r"/\1/<id>"),
             (re.compile(r"(re_|sk_|Bearer\s+)[\w-]{8,}"), r"\1<redacted>"),
             (re.compile(r"(password|secret|token|key)=([^&\s]+)", re.I), r"\1=<redacted>")]

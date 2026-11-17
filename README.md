@@ -24,7 +24,7 @@ Most of that work is mechanical: search, match, send the right legal request, wa
 **Remove**
 - Picks the best channel per broker: parent-company suppression (one request covers every sister site), the opt-out web form, or a privacy email.
 - Writes each email for the person's state: CCPA/CPRA and the Delete Act in California, 19 other state privacy laws, and a generic fallback. Requests list only the data that broker showed and set the legal response deadline.
-- Acts as an authorized agent, with the person's signed authorization attached. Family members draw their own signature during onboarding.
+- Acts as an authorized agent, with the person's signed authorization attached. They draw their own signature during onboarding, or on a no-login intake link. A photo or PDF of a paper signature can be uploaded and then marked verified. Nothing is removed until one of those is on file.
 - Clicks broker verification links automatically when inbound mail is set up.
 - Learns which channel actually gets listings removed for each broker and prefers it next time.
 
@@ -32,7 +32,7 @@ Most of that work is mechanical: search, match, send the right legal request, wa
 - Sends a reminder on day 20 and an escalation on day 45 that cites the regulator.
 - Re-scans to confirm a listing is gone before marking it Removed.
 - Re-checks every week and re-files automatically if a listing comes back.
-- Sends each member a short weekly email; the admin gets the family view.
+- Sends each family member a short weekly email; the admin gets the family view. People managed outside the household are left out of that email and out of the family totals.
 - Inbox: every email sent and received (requests, follow-ups, broker replies, verification emails, digests) in one list with status tabs, filters, search and a thread view per request.
 
 **Needs you**
@@ -195,7 +195,7 @@ If you'd rather not run a server, a paid service is a reasonable choice. Fletche
 Requests come from your domain, signed by you as the authorized agent, and cite the relevant law. Automated or not, brokers covered by these laws have to process valid requests.
 
 **Can I use it for people who aren't my family?**
-Only with their signed authorization, which they give themselves through the onboarding link. The app isn't built for running a removal business.
+Yes, as Outside / managed: clients, friends or relatives who don't live with you. Add them from the dashboard, or send a one-time intake link they open with no account. They sign the authorization themselves (on that page, or on paper that you upload and mark verified). They are not part of the family list, the family privacy score or the family summary email, and their listings stay on their own page. Removals still require that person's own signature.
 
 **What happens if I lose the encryption key?**
 The encrypted fields can't be recovered. Store `FF_DATA_KEY` in a password manager and back up the `/data` volume separately.

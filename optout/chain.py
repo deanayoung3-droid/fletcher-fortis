@@ -237,7 +237,7 @@ RANK = {"confirmed": 9, "sent": 8, "submitted": 8, "dry_run": 7, "found": 6, "no
 def coverage(person_ids=None, c=None):
     """Per broker in the roster: best method reached and its result; plus totals. Read-only."""
     import scanner
-    c = ensure(c); people = person_ids or [r["id"] for r in c.execute("SELECT id FROM people WHERE enabled=1 AND (esign_at IS NOT NULL OR auth_pdf IS NOT NULL)")]
+    c = ensure(c); people = person_ids or [r["id"] for r in c.execute("SELECT id FROM people WHERE enabled=1 AND (esign_at IS NOT NULL OR (auth_pdf IS NOT NULL AND consent_verified_at IS NOT NULL))")]
     rows = []
     q = ",".join("?" * len(people)) or "''"
     att = {}

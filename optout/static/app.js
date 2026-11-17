@@ -76,7 +76,8 @@ document.addEventListener('change',e=>{const f=e.target.closest('[data-autosubmi
 document.addEventListener('click',e=>{const o=e.target.closest('[data-open-dialog]');if(o){const d=document.getElementById(o.dataset.openDialog);d&&d.showModal();const i=d&&d.querySelector('input:not([type=hidden])');i&&i.focus()}
  const c=e.target.closest('[data-close-dialog]');if(c){c.closest('dialog').close()}});
 document.addEventListener('input',e=>{const i=e.target.closest('[data-match]');if(!i)return;const n=s=>s.trim().replace(/\s+/g,' ').toLowerCase();const b=document.getElementById(i.dataset.enables);if(b)b.disabled=n(i.value)!==n(i.dataset.match)});
-document.addEventListener('change',e=>{const w=e.target.closest('[data-who]');if(!w)return;const r=document.querySelector('[data-email-row]');if(r)r.hidden=w.value==='0'});
+document.addEventListener('change',e=>{const w=e.target.closest('[data-who]');if(w){const r=document.querySelector('[data-email-row]'),rel=document.querySelector('[data-rel-row]');if(r)r.hidden=w.value==='0';if(rel)rel.hidden=w.value==='0'}
+ const c=e.target.closest('[data-circle]');if(!c)return;const out=c.value==='outside';const em=document.querySelector('[data-email-row] input[name=email]');if(em)em.required=!out;const opt=document.querySelector('[data-email-optional]');if(opt)opt.hidden=!out;const fam=document.querySelector('[data-email-family]');const o=document.querySelector('[data-email-outside]');if(fam)fam.hidden=out;if(o)o.hidden=!out});
 // live scan progress (person page): poll while a scan is queued or running
 (()=>{const box=document.getElementById('scan');if(!box)return;const url=box.dataset.scanStatus,btn=document.querySelector('[data-scan-btn]'),lab=document.querySelector('[data-scan-label]');
  const t=box.querySelector('[data-scan-title]'),bar=box.querySelector('[data-scan-bar]'),ref=box.querySelector('[data-scan-refresh]');

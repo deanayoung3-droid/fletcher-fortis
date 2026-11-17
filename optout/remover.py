@@ -44,15 +44,33 @@ Sincerely,
 def can_send(p):
     if not p["enabled"]: return False, "profile disabled"
     if not DRY and not p.get("send_enabled"): return False, "sending not enabled by the family admin yet"
-    if not has_auth(p): return False, "the person has not e-signed the authorization yet"
+    if not has_auth(p): return False, "no signed authorization on file for this person"
     return True, ""
 
 PROVIDER = os.environ.get("SEND_PROVIDER", "resend").lower()          # resend | smtp (legacy per-person Gmail)
 FROM_ADDRESS = os.environ.get("FROM_ADDRESS") or "privacy@example.com"   # one shared sender; set in Heartbeat > Settings
 
 def has_auth(p):
-    """Authorization on file: in-app e-signature (preferred) or an uploaded signed PDF (fallback)."""
-    return bool(p["esign_at"] or p["auth_pdf"])
+    """The person's own e-signature, or a paper authorization the admin marked verified after a file was stored.
+    Uploading a file does not by itself grant consent. Rows that already had a signature or a PDF before 1.5.0
+    are marked verified on upgrade, so an existing consent stays valid."""
+    if not p: return False
+    if p.get("esign_at"): return True
+    return bool(p.get("auth_pdf") and p.get("consent_verified_at"))
+
+def _attach_name(path):
+    ext = os.path.splitext(path or "")[1].lower()
+    if ext in (".jpg", ".jpeg"): return "signed-authorization.jpg"
+    if ext == ".png": return "signed-authorization.png"
+    if ext == ".webp": return "signed-authorization.webp"
+    return "signed-authorization.pdf"
+
+def _attach_type(path):
+    ext = os.path.splitext(path or "")[1].lower()
+    if ext in (".jpg", ".jpeg"): return "image", "jpeg"
+    if ext == ".png": return "image", "png"
+    if ext == ".webp": return "image", "webp"
+    return "application", "pdf"
 
 def auth_file(p):
     """PDF attached to requests: the letter generated from the e-signature, else the uploaded fallback."""
@@ -81,7 +99,7 @@ def _resend(frm, to, rto, subject, body, attach, ref, html=None):
     d = {"from": frm, "to": [to], "reply_to": [rto], "subject": subject, "text": body, "headers": {"X-FF-Ref": ref}}
     if html: d["html"] = html
     if attach and os.path.exists(attach):
-        d["attachments"] = [{"filename": "signed-authorization.pdf", "content": base64.b64encode(open(attach, "rb").read()).decode()}]
+        d["attachments"] = [{"filename": _attach_name(attach), "content": base64.b64encode(open(attach, "rb").read()).decode()}]
     rq = urllib.request.Request("https://api.resend.com/emails", json.dumps(d).encode(), {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                                 "Idempotency-Key": ref, "User-Agent": USER_AGENT, "Accept": "application/json"})
     st = "error: not attempted"
@@ -149,7 +167,8 @@ def send_email(c, p, to, subject, body, attach=None, listing_id=None, html=None,
         else:
             m = EmailMessage(); m["From"] = p["email"]; m["To"] = to; m["Subject"] = subject; m["Reply-To"] = rto; m.set_content(body)
             if attach and os.path.exists(attach):
-                m.add_attachment(open(attach, "rb").read(), maintype="application", subtype="pdf", filename="signed-authorization.pdf")
+                raw = open(attach, "rb").read(); mt, st = _attach_type(attach)
+                m.add_attachment(raw, maintype=mt, subtype=st, filename=_attach_name(attach))
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context()) as s:
                 s.login(p["email"], pw); s.send_message(m)
             state = "sent"

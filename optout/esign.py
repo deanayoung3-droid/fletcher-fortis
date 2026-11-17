@@ -6,24 +6,27 @@ STATEMENT = "I authorize this service to submit privacy requests on my behalf"
 def auth_dir(): return os.path.realpath(__import__("paths").auth_dir())
 def pdf_path(pid): return os.path.join(auth_dir(), f"{pid}-esign.pdf")
 
-def letter_lines(p, signer_name, ts, ip, username, agent=None):
+def letter_lines(p, signer_name, ts, ip, username, agent=None, ua=None):
     agent = agent or os.environ.get("APP_NAME") or "Fletcher Fortis"
     when = datetime.datetime.fromisoformat(ts)
-    return [("h", "Authorized Agent Authorization"), ("s", "California Consumer Privacy Act (CCPA / CPRA)"), ("", ""),
-        ("", f"I, {signer_name}, authorize {agent} and the family administrator who operates it to act as my"),
+    who = "administrator who operates it" if (p.get("circle") == "outside") else "family administrator who operates it"
+    lines = [("h", "Authorized Agent Authorization"), ("s", "California Consumer Privacy Act (CCPA / CPRA)"), ("", ""),
+        ("", f"I, {signer_name}, authorize {agent} and the {who} to act as my"),
         ("", "authorized agent to submit requests to delete, to opt out of the sale or sharing of, and to know"),
         ("", "personal information that data brokers and people-search websites hold about me, and to"),
         ("", "receive and respond to related correspondence on my behalf."), ("", ""),
         ("", "This authorization covers requests under Cal. Civ. Code 1798.105, 1798.120 and 1798.135(e),"),
         ("", "11 CCR 7063, and comparable state privacy laws. I may revoke it at any time by contacting the"),
-        ("", "family administrator. It does not authorize any financial transaction."), ("", ""),
+        ("", "administrator. It does not authorize any financial transaction."), ("", ""),
         ("b", "Consumer"), ("", f"Name: {p['full_name']}"), ("", f"City / state: {p['city'] or ''}, {p['state'] or ''}"), ("", ""),
         ("b", "Electronic signature"), ("", f"Statement accepted: \"{STATEMENT}.\""), ("", f"Typed signature: /{signer_name}/   Drawn signature: below"),
-        ("", f"Signed at: {when:%B %d, %Y %H:%M} (server time)"), ("", f"Signed from IP address: {ip}"),
-        ("", f"{agent} account: @{username}"), *[("", "")] * 9,
+        ("", f"Signed at: {when:%B %d, %Y %H:%M} (server time)"), ("", f"Signed from IP address: {ip}")]
+    if ua: lines.append(("", f"Browser: {ua[:180]}"))
+    lines += [("", f"{agent} account: @{username}"), *[("", "")] * 8,
         ("s", "Signed electronically under the U.S. E-SIGN Act (15 U.S.C. 7001) and California UETA (Civ. Code 1633.7)."),
         ("s", "No Social Security number, date of birth or government ID number is collected or included."),
-        ("s", f"Record id: {hashlib.sha256(f'{p['id']}|{signer_name}|{ts}|{ip}|{username}'.encode()).hexdigest()[:16]}")]
+        ("s", f"Record id: {hashlib.sha256(f'{p['id']}|{signer_name}|{ts}|{ip}|{username}|{ua or ''}'.encode()).hexdigest()[:16]}")]
+    return lines
 
 def _esc(t): return t.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").encode("latin-1", "replace").decode("latin-1")
 def parse_strokes(raw):
@@ -64,11 +67,11 @@ def render_pdf(lines, strokes=None):
     x = len(out); out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offs)
     return out + b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
 
-def write_pdf(p, signer_name, ts, ip, username, strokes=None):
+def write_pdf(p, signer_name, ts, ip, username, strokes=None, ua=None):
     d = auth_dir(); os.makedirs(d, mode=0o700, exist_ok=True); path = pdf_path(p["id"])
     if os.path.dirname(os.path.realpath(path)) != d: raise ValueError("bad path")
     fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as f: f.write(render_pdf(letter_lines(p, signer_name, ts, ip, username), strokes))
+    with os.fdopen(fd, "wb") as f: f.write(render_pdf(letter_lines(p, signer_name, ts, ip, username, ua=ua), strokes))
     os.replace(path + ".tmp", path); return path
 
 def name_matches(typed, full_name):

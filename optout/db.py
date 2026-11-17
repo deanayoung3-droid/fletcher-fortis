@@ -22,8 +22,12 @@ def conn():
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS people(id TEXT PRIMARY KEY, full_name TEXT, first TEXT, last TEXT, city TEXT, state TEXT,
   prior_cities TEXT, email TEXT, phone TEXT, age_min INT, age_max INT, enabled INT DEFAULT 1,
-  needs_auth INT DEFAULT 0, auth_pdf TEXT, bulk_ccpa INT DEFAULT 0, notes TEXT);
+  needs_auth INT DEFAULT 0, auth_pdf TEXT, bulk_ccpa INT DEFAULT 0, notes TEXT,
+  circle TEXT DEFAULT 'family', consent_verified_at TEXT);
 -- no SSN / DOB / ID columns by design
+-- circle: 'family' (household) or 'outside' (managed, kept out of family views, totals and summary emails)
+CREATE TABLE IF NOT EXISTS intake_links(id INTEGER PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, person_id TEXT,
+  circle TEXT NOT NULL DEFAULT 'outside', expires TEXT NOT NULL, used_at TEXT, created TEXT NOT NULL, csrf TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS listings(id INTEGER PRIMARY KEY, person_id TEXT, site TEXT, url TEXT, fields TEXT,
   screenshot TEXT, status TEXT DEFAULT 'candidate', first_seen TEXT, last_seen TEXT, last_checked TEXT,
   submitted_at TEXT, confirmed_at TEXT, UNIQUE(person_id, site, url));
@@ -49,9 +53,10 @@ MIGRATE = [("outbox", "listing_id INT"), ("outbox", "reply_to TEXT"), ("people",
            ("people", "esign_name TEXT"), ("people", "esign_at TEXT"), ("people", "esign_ip TEXT"), ("people", "esign_user TEXT"), ("people", "send_from TEXT"), ("people", "esign_sig TEXT"), ("people", "drop_at TEXT"), ("users", "email TEXT"), ("users", "onboarded INT DEFAULT 1"), ("users", "name TEXT"),
            ("outbox", "stage INT DEFAULT 0"), ("outbox", "channel TEXT"), ("outbox", "html TEXT"),
            ("users", "invite_state TEXT"), ("users", "invite_sent_at TEXT"), ("users", "invite_opened_at TEXT"), ("users", "invite_error TEXT"),
-           ("listings", "chain_at TEXT"), ("reg_requests", "tries INT DEFAULT 0")]
+           ("listings", "chain_at TEXT"), ("reg_requests", "tries INT DEFAULT 0"),
+           ("people", "circle TEXT DEFAULT 'family'"), ("people", "esign_ua TEXT"), ("people", "consent_verified_at TEXT")]
 # columns holding PII: encrypted at rest
-ENCRYPTED = {"people": ["full_name", "first", "last", "city", "prior_cities", "email", "phone", "notes", "profile", "esign_name", "esign_ip", "send_from", "esign_sig"],
+ENCRYPTED = {"people": ["full_name", "first", "last", "city", "prior_cities", "email", "phone", "notes", "profile", "esign_name", "esign_ip", "send_from", "esign_sig", "esign_ua"],
              "listings": ["url", "fields"], "events": ["detail"], "outbox": ["subject", "body", "html"], "users": ["email", "name"],
              "inbox": ["from_addr", "to_addr", "subject", "links", "clicked", "body"], "calls": ["from_num", "detail"]}
 
@@ -73,9 +78,18 @@ def backup(reason, keep=5):
     for old in sorted(f for f in os.listdir(d) if f.startswith("optout-") and f.endswith(".db"))[:-keep]: os.remove(os.path.join(d, old))
     return out
 
+def _older(v, than):
+    def tup(s):
+        out = []
+        for p in (s or "0").lstrip("v").split("."):
+            try: out.append(int(p))
+            except ValueError: out.append(0)
+        return tuple(out)
+    return tup(v) < tup(than)
+
 def init():
     """Open the DB, back it up when the app version changed since the last start, then apply migrations (idempotent)."""
-    existed = os.path.exists(DB); ver = app_version()
+    existed = os.path.exists(DB); ver = app_version(); old = ver
     if existed:
         try:
             r = sqlite3.connect(DB); old = r.execute("SELECT v FROM app_meta WHERE k='version'").fetchone(); r.close(); old = old[0] if old else "pre-1.0.0"
@@ -86,7 +100,16 @@ def init():
         try: c.execute(f"ALTER TABLE {t} ADD COLUMN {col}")
         except sqlite3.OperationalError: pass
     encrypt_existing(c)
+    c.execute("UPDATE people SET circle='family' WHERE circle IS NULL OR circle=''")
+    if _older(old, "1.5.0"): backfill_v150(c)   # only on the upgrade, so a later upload is not auto-verified on the next start
     c.execute("INSERT INTO app_meta(k,v) VALUES('version',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (ver,)); c.commit(); return c
+
+def backfill_v150(c):
+    """1.5.0 upgrade only: a signature or PDF already on file stays valid consent. A file uploaded after this
+    version is not consent until the admin marks it, so this must not run again on later starts."""
+    c.execute("""UPDATE people SET consent_verified_at=?
+                 WHERE (consent_verified_at IS NULL OR consent_verified_at='')
+                   AND ((esign_at IS NOT NULL AND esign_at!='') OR (auth_pdf IS NOT NULL AND auth_pdf!=''))""", (now(),))
 
 def encrypt_existing(c):
     """One-time migration: encrypt any plaintext PII left from older versions."""

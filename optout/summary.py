@@ -79,7 +79,7 @@ def enabled():
 
 def recipients(c):
     """[(people, family, to_address, sender_person)] — each member gets their own; the admin also gets the family-wide one."""
-    people = c.execute("SELECT * FROM people WHERE enabled=1 ORDER BY rowid").fetchall(); out = []
+    people = c.execute("SELECT * FROM people WHERE enabled=1 AND COALESCE(circle,'family')!='outside' ORDER BY rowid").fetchall(); out = []
     admin = c.execute("SELECT person_id FROM users WHERE role='admin' LIMIT 1").fetchone()
     for p in people:
         if p["email"]: out.append(([p], False, p["email"], p))

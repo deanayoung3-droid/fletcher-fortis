@@ -34,7 +34,7 @@ def test_resend_live_payload(monkeypatch):
     """With DRY_RUN off: From is the shared address, the auth PDF goes only with non-self (needs_auth) members."""
     sent = []; monkeypatch.setattr(remover, "DRY", False); monkeypatch.setattr(remover, "_resend", lambda *a: sent.append(a) or "sent:x")
     pdf = pathlib.Path(T) / "k.pdf"; pdf.write_bytes(b"%PDF-1.4 test")
-    c = db.conn(); c.execute("UPDATE people SET auth_pdf=?, send_enabled=1 WHERE id IN ('sam','alex')", (str(pdf),)); c.commit()
+    c = db.conn(); c.execute("UPDATE people SET auth_pdf=?, consent_verified_at=?, send_enabled=1 WHERE id IN ('sam','alex')", (str(pdf), db.now())); c.commit()
     assert remover.send_email(c, person("sam"), "a@b.com", "S", "B", str(pdf)) == "sent"
     assert remover.send_email(c, person("alex"), "a@b.com", "S", "B", str(pdf)) == "sent"
     (frm, to, rto, subj, body, att, ref, _h), d = sent

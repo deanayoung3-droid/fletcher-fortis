@@ -1,12 +1,12 @@
 {% extends "base.html" %}{% from "_ui.html" import icon, avatar, pill, status, logo, label, gauge with context %}{% block title %}{{p.full_name}}{% endblock %}{% block body %}
-{% set s = stats %}{% set names_full = [] %}{% set phones_f = [] %}{% for x in prof.phones %}{% set _ = phones_f.append(fmt_phone(x)) %}{% endfor %}{% for n in prof.names %}{% set _ = names_full.append(fullname(n) ~ ('' if n.kind == 'legal' else ' (' ~ n.kind ~ ')')) %}{% endfor %}{% set sc = score(p.id) %}{% set blocked = p.needs_auth and not has_auth(p) %}{% set exposed = s.get('candidate',0) + s.get('reappeared',0) + s.get('blocked_auth',0) %}
+{% set s = stats %}{% set names_full = [] %}{% set phones_f = [] %}{% for x in prof.phones %}{% set _ = phones_f.append(fmt_phone(x)) %}{% endfor %}{% for n in prof.names %}{% set _ = names_full.append(fullname(n) ~ ('' if n.kind == 'legal' else ' (' ~ n.kind ~ ')')) %}{% endfor %}{% set sc = score(p.id) %}{% set blocked = not has_auth(p) %}{% set exposed = s.get('candidate',0) + s.get('reappeared',0) + s.get('blocked_auth',0) %}
 {% set mc = s.get('manual_check',0) %}{% set prog = s.get('approved',0) + s.get('submitted',0) + s.get('pending',0) + s.get('needs_human',0) %}{% set tot = (s.values()|sum) - s.get('not_me',0) - s.get('manual_check',0) - s.get('checked_clear',0) %}
 <div class="flex flex-col xl:flex-row gap-6">
 <div class="flex-1 min-w-0">
  <div class="flex flex-wrap items-center gap-3.5 mb-5">
   <a href="/" class="btn-icon !w-10 !h-10 bg-white dark:bg-neutral-900 ring-1 ring-stone-200 dark:ring-white/10" aria-label="Back">{{icon('back')}}</a>
   {{avatar(p,'w-11 h-11 text-[14px]')}}
-  <div class="min-w-0 flex-1 basis-[55%] sm:basis-0"><h1 class="text-[30px] font-medium tracking-[-0.04em] leading-tight flex items-center gap-2">{{p.full_name}}{% if not p.enabled %}{{pill('Monitoring paused','gray')}}{% endif %}</h1>
+   <div class="min-w-0 flex-1 basis-[55%] sm:basis-0"><h1 class="text-[30px] font-medium tracking-[-0.04em] leading-tight flex flex-wrap items-center gap-2">{{p.full_name}}{% if circle_of(p) == 'outside' %}{{pill('Outside / managed','gray')}}{% else %}{{pill('Family','blue')}}{% endif %}{% if not p.enabled %}{{pill('Monitoring paused','gray')}}{% endif %}</h1>
    <div class="text-[13px] text-stone-500 dark:text-neutral-400 truncate">{{[p.city, p.state]|select|join(', ') or 'Location not set'}}{% if p.prior_cities %} · prev. {{p.prior_cities.replace(',', ', ')}}{% endif %} · {{prof.names|length}} name{{'s' if prof.names|length != 1}}, {{prof.phones|length}} phone{{'s' if prof.phones|length != 1}}{% if p.age_min %} · age {{p.age_min}}–{{p.age_max}}{% endif %}</div></div>
   <div class="ml-auto flex gap-2 w-full sm:w-auto justify-end">
    <a href="/person/{{p.id}}/profile" class="btn">{{icon('user')}}<span class="hidden md:inline">Edit profile</span></a>
@@ -27,6 +27,25 @@
    <p class="text-[11.5px] text-stone-500 mt-1.5">{{'Emailed to them. ' if iv.just == 'sent' else ('Not emailed: sending failed (see above). Send this link yourself. ' if iv.just == 'failed' else 'Not emailed: email is not set up yet. Send this link yourself. ')}}Single use, expires in 7 days. Resending makes a new link.</p>{% endif %}
   <p class="text-[11.5px] text-stone-400 mt-2">{{iv.note}} No removal is filed until they accept and sign.</p>
  </div></section>
+{% endif %}
+{% if me().role == 'admin' %}
+<section id="intake-link" class="tile mb-3"><div class="card-w p-4 sm:p-5">
+ <div class="flex flex-wrap items-start gap-3">
+  <span class="w-9 h-9 rounded-full bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-500 shrink-0">{{icon('link','w-4 h-4')}}</span>
+  <div class="flex-1 min-w-[220px]"><div class="text-[14px] font-semibold">Private intake link</div>
+   <p class="text-[12.5px] text-stone-500 mt-0.5">No account and no login. They open the link, confirm their details and sign. Single use, expires in 7 days. Nothing is emailed unless you press Email the link.</p></div>
+  <form method="post" action="/person/{{p.id}}/circle" class="flex items-center gap-2">{{csrf()}}
+   <label class="sr-only" for="circ-{{p.id}}">Household</label>
+   <select id="circ-{{p.id}}" name="relationship" class="input !h-9 !w-auto"><option value="family" {{'selected' if circle_of(p) == 'family'}}>Family</option><option value="outside" {{'selected' if circle_of(p) == 'outside'}}>Outside / managed</option></select>
+   <button class="btn !h-9">Move</button></form></div>
+ {% if cerr %}<div role="alert" class="mt-3 text-[12.5px] text-rose-600">{{cerr}}</div>{% endif %}
+ {% if intake_link %}<div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-2"><input id="ink" readonly class="input font-mono !h-9 !text-[12px] flex-1" value="{{intake_link}}"><button type="button" class="btn !h-9" data-copy="ink">{{icon('copy')}}<span>Copy</span></button></div>
+  <p class="text-[11.5px] text-stone-500 mt-1.5">{{'Emailed.' if istate == 'sent' else ('Not emailed: sending is not set up, so copy the link.' if istate == 'pending' else 'Not emailed. Copy it, or press Email the link.')}}</p>{% endif %}
+ <form method="post" action="/person/{{p.id}}/intake-link" class="mt-3 flex flex-col sm:flex-row gap-2 sm:items-center">{{csrf()}}
+  <input class="input !h-9 sm:max-w-[280px]" name="email" type="email" maxlength="200" placeholder="Their email (blank uses the saved one)" aria-label="Email the link to">
+  <button class="btn !h-9" name="send" value="">{{icon('link')}}Generate link</button>
+  <button class="btn-p !h-9" name="send" value="1">{{icon('mail')}}Email the link</button></form>
+</div></section>
 {% endif %}
 {% if not locked %}{% set sj = scanjob or {} %}
  <div id="scan" data-scan-status="/person/{{p.id}}/scan/status" data-scan-state="{{sj.state or ''}}" class="{{'' if sj.state else 'hidden'}} mb-3 rounded-2xl ring-1 ring-stone-200/80 dark:ring-white/10 bg-white dark:bg-neutral-900 px-4 py-3 flex items-center gap-3" role="status" aria-live="polite">
@@ -56,7 +75,7 @@
     <p class="mt-2 text-stone-400">Listings are worth 60 points and registered brokers 40. A listing gone on re-scan earns all its points, a broker's "removed" email 85%, a request sent 30%, "no records" counts as clear. Each broker deletion or "no records" reply earns points on a curve (25 in all): about +1 for the first, +6 for the first 7, full marks around 100. Brokers not contacted yet cost up to 15 points, a third of that while they wait in the automatic queue.</p></details></div></div>
   <div class="tile"><div class="card-w p-4 h-full flex flex-col gap-2.5">
    <div class="flex items-center gap-2.5"><span class="w-8 h-8 rounded-lg bg-stone-100 dark:bg-white/[.06] grid place-items-center">{{icon('file')}}</span><div class="leading-tight"><div class="text-[13.5px] font-semibold">Authorization</div><div class="text-[11.5px] text-stone-500">{{'Required: removing someone else’s data' if p.needs_auth else 'Not required: this is you'}}</div></div></div>
-   <div class="flex items-center justify-between text-[12.5px] pt-1"><span class="text-stone-500">Authorization</span>{% if not p.needs_auth %}{{pill('Not needed','gray')}}{% elif has_auth(p) %}<a href="/person/{{p.id}}/authorization.pdf">{{pill('E-signed' if p.esign_at else 'PDF on file','green')}}</a>{% else %}<a href="/person/{{p.id}}/authorize">{{pill('Not signed','amber')}}</a>{% endif %}</div>
+   <div class="flex items-center justify-between text-[12.5px] pt-1"><span class="text-stone-500">Authorization</span>{% if has_auth(p) %}<a href="/person/{{p.id}}/authorization.pdf">{{pill('E-signed' if p.esign_at else 'Paper signed','green')}}</a>{% elif paper %}{{pill('File uploaded','amber')}}{% elif not p.needs_auth %}{{pill('Not signed','amber')}}{% else %}<a href="/person/{{p.id}}/authorize">{{pill('Not signed','amber')}}</a>{% endif %}</div>
    <div class="flex items-center justify-between text-[12.5px]"><span class="text-stone-500">Removals</span>{% if blocked %}{{pill('Blocked','red')}}{% else %}{{pill('Allowed','green')}}{% endif %}</div>
    <div class="flex items-center justify-between text-[12.5px]"><span class="text-stone-500">Sending</span>{% if me().role == 'admin' %}<form method="post" action="/person/{{p.id}}/toggle/send_enabled">{{csrf()}}<button class="pill {{'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/20' if p.send_enabled else 'bg-stone-100 text-stone-600 ring-stone-200 dark:bg-white/[.06] dark:text-neutral-400 dark:ring-white/10'}} hover:opacity-80" title="Only the family admin can enable sending">{{'Enabled' if p.send_enabled else 'Off · enable'}}</button></form>{% else %}{{pill('Enabled','green') if p.send_enabled else pill('Admin enables','gray')}}{% endif %}</div>
    <div class="flex items-center justify-between text-[12.5px]"><span class="text-stone-500">Bulk CCPA</span>{{pill('On','blue') if p.bulk_ccpa else pill('Off','gray')}}</div></div></div>
@@ -75,7 +94,7 @@
  {% if blocked %}<div class="tile mb-3"><div class="card-w p-4 flex flex-col sm:flex-row sm:items-center gap-4 ring-1 ring-amber-200 dark:ring-amber-400/20">
    <span class="w-11 h-11 rounded-xl bg-amber-50 dark:bg-amber-400/10 text-amber-600 grid place-items-center shrink-0">{{icon('file','w-5 h-5')}}</span>
    <div class="flex-1 min-w-0">{% if me().person_id == p.id %}<div class="text-[14px] font-semibold">Sign your authorization</div><div class="text-[12.5px] text-stone-500 dark:text-neutral-400">One click and your typed name. Removals stay blocked until you sign.</div>
-   {% else %}<div class="text-[14px] font-semibold">Waiting for {{p.first}} to e-sign</div><div class="text-[12.5px] text-stone-500 dark:text-neutral-400">{{p.first}} signs from their own login. Removals for {{p.first}} stay blocked until then.</div>{% endif %}</div>
+   {% else %}<div class="text-[14px] font-semibold">Waiting for {{p.first}} to sign</div><div class="text-[12.5px] text-stone-500 dark:text-neutral-400">Send the private intake link above, or they sign from their own login. A paper copy can be uploaded on Authorization. Removals stay blocked until one of those is on file.</div>{% endif %}</div>
    <a href="/person/{{p.id}}/authorize" class="btn-p">{{icon('check')}}{{'Sign authorization' if me().person_id == p.id else 'View / other options'}}</a></div></div>{% endif %}
 
  <div class="flex items-center gap-1 overflow-x-auto rounded-full bg-stone-100 dark:bg-neutral-900 p-1 mb-3 w-full sm:w-max max-w-full ring-1 ring-stone-200/60 dark:ring-white/10">

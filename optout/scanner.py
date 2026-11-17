@@ -328,7 +328,7 @@ async def run_all(only_person=None, progress=None):
     from playwright.async_api import async_playwright
     c = conn(); shots.ensure(c)
     q = "SELECT * FROM people WHERE enabled=1" + (" AND id=?" if only_person else "")   # nosec B608
-    people = [p for p in c.execute(q, ((only_person,) if only_person else ())).fetchall() if p["esign_at"] or p["auth_pdf"]]   # consent first: never scan someone who hasn't signed
+    people = [p for p in c.execute(q, ((only_person,) if only_person else ())).fetchall() if p["esign_at"] or (p["auth_pdf"] and p["consent_verified_at"])]   # consent first: e-sign, or a paper authorization that was marked verified
     total = len(people) * len(SITES); done = found = errors = 0
     if progress: progress(0, total, 0, 0)
     async with async_playwright() as pw:

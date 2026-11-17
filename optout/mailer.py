@@ -45,6 +45,25 @@ def onboarding(first, admin, link):
 </table></td></tr></table></body></html>"""
     return subject, text, h
 
+def intake_notice(first, link):
+    """Email of a one-time intake link. Sent only when the admin clicks Send. Returns (subject, text, html)."""
+    app = config.get("APP_NAME") or "Fletcher Fortis"; color = config.get("BRAND_COLOR") or "#5559e3"; E = html.escape
+    subject = f"{first}, a private link to authorize {app}"
+    text = "\n".join([f"Hi {first},", "", f"Use this private link to review your details and sign the authorization that lets {app} ask data brokers to delete your information.",
+        "", link, "", "The link works once and expires in 7 days. No account is required.",
+        "No Social Security number, date of birth or ID number is asked for.", "If you weren't expecting this, ignore it.", "", app])
+    F = "font-family:Geist,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"
+    h = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#ece9e2"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#ece9e2"><tr><td align="center" style="padding:28px 12px">
+<table role="presentation" width="540" cellspacing="0" cellpadding="0" style="width:540px;max-width:540px;background:#ffffff;border-radius:22px">
+<tr><td style="padding:28px 32px 0;{F}font-size:17px;font-weight:600;color:#0a0a0a">{E(app)}</td></tr>
+<tr><td style="padding:18px 32px 0;{F}font-size:26px;line-height:1.15;font-weight:500;letter-spacing:-.03em;color:#0a0a0a">Hi {E(first)}, please review and sign.</td></tr>
+<tr><td style="padding:12px 32px 0;{F}font-size:14.5px;line-height:1.55;color:#57534e">This private link opens a form where you confirm your name and contact details and sign the authorization. No account and no login. It works once.</td></tr>
+<tr><td style="padding:22px 32px 0"><a href="{E(link)}" style="display:inline-block;background:{E(color)};color:#ffffff;text-decoration:none;{F}font-size:15px;font-weight:600;padding:14px 22px;border-radius:999px">Open the form</a></td></tr>
+<tr><td style="padding:16px 32px 28px;{F}font-size:12px;line-height:1.5;color:#8a857c">Expires in 7 days. No Social Security number, date of birth or ID number is asked for.<br><br>{E(link)}</td></tr>
+</table></td></tr></table></body></html>"""
+    return subject, text, h
+
 def send_test(to):
     """Setup wizard 'Send test email': one plain message to the admin's own address, straight through Resend, so the key and
     from-address can be checked before going live. It is the only send that ignores DRY_RUN, and it never reaches a broker."""
