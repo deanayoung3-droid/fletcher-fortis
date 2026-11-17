@@ -7,7 +7,7 @@ tick() runs hourly from the scheduler (and on demand from Heartbeat)."""
 import json
 import datetime, os
 import config, remover
-from db import conn, now, event
+from db import conn, now, event, rollback
 
 def _days(ts):
     try: return (datetime.datetime.now() - datetime.datetime.fromisoformat(ts[:19])).days
@@ -15,6 +15,15 @@ def _days(ts):
 
 def tick():
     c = conn(); out = {"auto_approved": 0, "refiled": 0, "blind": 0, "reminders": 0, "escalations": 0}
+    try:
+        return _tick(c, out)
+    except Exception:
+        rollback(c); raise
+    finally:
+        try: c.close()
+        except Exception: pass
+
+def _tick(c, out):
     if not remover.DRY: out["requeued_drafts"] = requeue_dry(c); out["archived_drafts"] = archive_drafts(c)
     try:   # once per release: re-match and re-classify stored broker replies, so fixes to matching apply to old mail too
         import inbound, db as _db
@@ -50,6 +59,7 @@ def tick():
     for l in c.execute("SELECT * FROM listings WHERE status='manual_check'").fetchall():
         site = remover.SITE.get(l["site"], {}); p = c.execute("SELECT * FROM people WHERE id=?", (l["person_id"],)).fetchone()
         if site and p and remover.has_auth(p) and chain.blind(c, p, l, site): out["blind"] += 1
+        c.commit()
     if not remover.DRY:   # live: approved listings go through the method chain on the single worker, CHAIN_PER_HOUR per run
         out["chain_started"] = start_chains(c)
     import automation

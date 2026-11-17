@@ -2,6 +2,11 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.5.3] - 2026-11-17
+
+### Fixed
+- **The app stopped answering after startup, including the health check.** The hourly job runs as soon as the container starts. On a live server it kept one database write open while it re-read saved replies and while it waited on the network to send mail. Incoming broker mail then failed with "database is locked", and that wait ran on the web server's single event loop, so every request, including `/healthz`, hung behind it. A failed write also left its transaction open, which kept the lock. Mail is now saved in a short transaction that is rolled back and closed on error, messages are taken one at a time and retried instead of returning 500, sending mail no longer holds the database, and `/healthz` never touches the database.
+
 ## [1.5.2] - 2026-11-17
 
 ### Fixed

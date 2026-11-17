@@ -92,21 +92,34 @@ CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; 
 def _allowed_hosts(r):
     return {h for h in (r.headers.get("host", ""), urlsplit(os.environ.get("PUBLIC_URL", "")).netloc) if h}
 
+def _session(r):
+    """Session lookup off the event loop. A locked database waits inside this thread, not in front of /healthz."""
+    try: return auth.session(r)
+    except sqlite3.OperationalError: return None
+def _users_exist():
+    c = db.conn()
+    try: return bool(c.execute("SELECT 1 FROM users LIMIT 1").fetchone())
+    except sqlite3.OperationalError: return False
+    finally: db.close(c)
+
 @app.middleware("http")
 async def security(r: Request, call_next):
     path = r.url.path
-    # Styles, scripts and fonts never touch the database. A locked database during login used to
-    # turn /static/app.css into an HTML error page, and the browser then drew the app with no layout.
+    # Styles, scripts, fonts and the health check never touch the database. A locked database during
+    # login used to turn /static/app.css into an HTML error page, and a lock held by the startup job
+    # used to freeze /healthz because the session lookup ran on the event loop.
+    if path == "/healthz":
+        return _headers(await call_next(r))
     if path.startswith("/static/") or path == "/favicon.ico":
         return _headers(await call_next(r), static=True)
     ok, r.state.cf_identity = cfaccess.check(path, r.headers)   # optional, off by default; never logs anyone in
     if not ok: return _headers(Response("Cloudflare Access login required", 403))
-    try: u = auth.session(r)
-    except sqlite3.OperationalError: u = None   # a busy database must not turn the page into a 500
+    u = await asyncio.to_thread(_session, r)
     r.state.user = u; tokv = CUR.set(u)
     try:
         public = any(path == p or (p.endswith("/") and path.startswith(p)) for p in PUBLIC)
-        if not has_users() and not path.startswith(("/setup", "/static/", "/healthz", "/favicon.ico")):   # first run: setup wizard only
+        if not _HAS_USERS[0]: _HAS_USERS[0] = await asyncio.to_thread(_users_exist)
+        if not _HAS_USERS[0] and not path.startswith(("/setup", "/static/", "/healthz", "/favicon.ico")):   # first run: setup wizard only
             return _headers(RedirectResponse("/setup", 303))
         if r.method == "POST" and not path.startswith(("/inbound/", "/twilio/")):
             o = r.headers.get("origin") or r.headers.get("referer")
@@ -669,7 +682,9 @@ async def inbound_email(r: Request):
     if int(r.headers.get("content-length") or 0) > 10_000_000: raise HTTPException(413)
     raw = await r.body()
     if not raw or len(raw) > 10_000_000: raise HTTPException(413 if raw else 400)
-    res = inbound.handle(db.conn(), raw); return {"ok": True, "kind": res["kind"], "matched": bool(res["person"])}
+    res = await asyncio.to_thread(inbound.accept, raw)
+    if not res: return JSONResponse({"ok": False, "retry": True}, status_code=503)
+    return {"ok": True, "kind": res["kind"], "matched": bool(res["person"])}
 
 # ---------- e-sign authorization ----------
 def _can_sign(r, pid): u = r.state.user; return bool(u) and u["person_id"] == pid   # only the person themself, never the admin for someone else
@@ -1310,7 +1325,9 @@ def scheduler():
                 last["brokers"] = key; import brokerdb; c, t = brokerdb.merge(refresh=True); bad = brokerdb.check_contacts(); event(db.conn(), "broker_refresh", f"{c} -> {t} merged, {bad} unresolvable")
             if n.weekday() == 0 and n.hour == int(config.get("SUMMARY_HOUR")) and last.get("sum") != key and summary.enabled():   # Monday 08:00 (TZ=America/Los_Angeles)
                 last["sum"] = key; summary.send_all()
-        except Exception as e: event(db.conn(), "scheduler_error", str(e))
+        except Exception as e:
+            try: event(db.conn(), "scheduler_error", str(e)[:200])
+            except Exception: pass
         time.sleep(60)
 if os.environ.get("SCHEDULER", "true") == "true": threading.Thread(target=scheduler, daemon=True).start()
 

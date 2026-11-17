@@ -12,12 +12,23 @@ class Row(dict):
 def _factory(cur, row): return Row(zip([d[0] for d in cur.description], (dec(v) for v in row)))
 
 def conn():
+    """A short-lived connection. WAL so readers don't block writers. busy_timeout so a writer waits instead of failing at once."""
     os.makedirs(os.path.dirname(DB), exist_ok=True)
     new = not os.path.exists(DB)
-    c = sqlite3.connect(DB, check_same_thread=False, timeout=15); c.row_factory = _factory
-    c.execute("PRAGMA journal_mode=WAL"); c.execute("PRAGMA foreign_keys=ON")
+    c = sqlite3.connect(DB, check_same_thread=False, timeout=5); c.row_factory = _factory
+    c.execute("PRAGMA journal_mode=WAL"); c.execute("PRAGMA busy_timeout=5000"); c.execute("PRAGMA foreign_keys=ON")
     if new: os.chmod(DB, 0o600)
     return c
+
+def rollback(c):
+    """Drop an open transaction. A failed statement must not keep the write lock."""
+    try: c.rollback()
+    except Exception: pass
+
+def close(c):
+    rollback(c)
+    try: c.close()
+    except Exception: pass
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS people(id TEXT PRIMARY KEY, full_name TEXT, first TEXT, last TEXT, city TEXT, state TEXT,
@@ -146,4 +157,7 @@ def encrypt_existing(c):
     raw.commit(); raw.close()
 
 def event(c, kind, detail="", person_id=None, listing_id=None):
-    c.execute("INSERT INTO events(ts,person_id,listing_id,kind,detail) VALUES(?,?,?,?,?)", (now(), person_id, listing_id, kind, enc(detail))); c.commit()
+    try:
+        c.execute("INSERT INTO events(ts,person_id,listing_id,kind,detail) VALUES(?,?,?,?,?)", (now(), person_id, listing_id, kind, enc(detail))); c.commit()
+    except Exception:
+        rollback(c); raise

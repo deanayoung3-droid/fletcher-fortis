@@ -1,9 +1,9 @@
 """Inbound broker replies. Cloudflare Email Routing -> Email Worker -> POST /inbound/email (raw RFC822, X-Inbound-Secret header).
 Matches each reply to a person + request, classifies it, and auto-clicks verification links ONLY when both the sender
 and the link host are known broker domains (allowlist built from sites.yaml). DRY_RUN=true: links are logged, never clicked."""
-import email, email.policy, os, re, json, urllib.request, urllib.parse, urllib.error, html as _html
+import email, email.policy, os, re, json, sqlite3, threading, time, urllib.request, urllib.parse, urllib.error, html as _html
 import yaml
-from db import now, event
+from db import now, event, conn, rollback, close
 from crypto import enc
 DRY = os.environ.get("DRY_RUN", "true").lower() != "false" or os.environ.get("FORCE_DRY_RUN", "").lower() == "true"
 AUTOCLICK = os.environ.get("INBOUND_AUTOCLICK", "true").lower() == "true"
@@ -107,7 +107,9 @@ def relink(c):
         kind = r["kind"] if r["kind"] in ("drop_id", "status_update", "verified", "drop_other") else classify(subj, body)
         if (pid, oid) != (r["person_id"], r["outbox_id"]): nl += 1
         if kind != r["kind"]: nk += 1
-        if (pid, oid, kind) != (r["person_id"], r["outbox_id"], r["kind"]): c.execute("UPDATE inbox SET person_id=?, outbox_id=?, kind=? WHERE id=?", (pid, oid, kind, r["id"]))
+        if (pid, oid, kind) != (r["person_id"], r["outbox_id"], r["kind"]):
+            c.execute("UPDATE inbox SET person_id=?, outbox_id=?, kind=? WHERE id=?", (pid, oid, kind, r["id"]))
+            if (nl + nk) % 25 == 0: c.commit()   # don't hold the write lock across the whole inbox
     c.commit(); return nl, nk
 
 QUOTED = re.compile(r"(^|\n)\s*(On .{0,300}?wrote:|-{2,} ?Original Message ?-{2,}|From: .{0,300}?\n\s*(Sent|Date): |>\s*To .{2,120}? privacy team)", re.S)
@@ -199,12 +201,31 @@ def handle(c, raw: bytes, clicker=_click):
             try: clicked.append(f"{clicker(u)} {u}")
             except Exception as e: clicked.append(f"error {e} {u}"[:300])
     new = {"verify": "pending", "removed": "pending", "not_found": "pending", "ack": "pending", "need_info": "needs_human", "denied": "needs_human"}.get(kind)
-    if lid and new:
-        c.execute("UPDATE listings SET status=? WHERE id=? AND status NOT IN ('confirmed_removed','not_me')", (new, lid))
-    c.execute("INSERT INTO inbox(ts,person_id,listing_id,outbox_id,from_addr,to_addr,subject,kind,links,clicked,body) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-              (now(), pid, lid, oid, enc(frm), enc(to.strip()), enc(subj), kind, enc(json.dumps(links[:20])), enc(json.dumps(clicked)), enc(body[:20000])))
-    event(c, "broker_reply_" + kind, f"{frm} | {subj}" + (" | " + "; ".join(clicked) if clicked else ""), pid, lid)
-    if kind in ("removed", "not_found") and lid: event(c, "broker_reports_removed", "will be marked Removed only after the next re-scan confirms it", pid, lid)
-    c.commit()
+    try:
+        if lid and new:
+            c.execute("UPDATE listings SET status=? WHERE id=? AND status NOT IN ('confirmed_removed','not_me')", (new, lid))
+        c.execute("INSERT INTO inbox(ts,person_id,listing_id,outbox_id,from_addr,to_addr,subject,kind,links,clicked,body) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                  (now(), pid, lid, oid, enc(frm), enc(to.strip()), enc(subj), kind, enc(json.dumps(links[:20])), enc(json.dumps(clicked)), enc(body[:20000])))
+        event(c, "broker_reply_" + kind, f"{frm} | {subj}" + (" | " + "; ".join(clicked) if clicked else ""), pid, lid)
+        if kind in ("removed", "not_found") and lid: event(c, "broker_reports_removed", "will be marked Removed only after the next re-scan confirms it", pid, lid)
+        c.commit()
+    except Exception:
+        rollback(c); raise
     if pid: refresh(c, pid)
     return {"person": pid, "listing": lid, "outbox": oid, "site": sorted(site) if site else None, "kind": kind, "clicked": clicked, "status": new if lid else None}
+
+_GATE = threading.Lock()
+def accept(raw):
+    """Store one inbound message off the request loop. Messages are taken one at a time and retried when the database is busy.
+    A failure rolls the transaction back and closes the connection, so a locked write cannot freeze the rest of the app.
+    Returns None when the database stays busy; the caller answers 503 so the sender tries again."""
+    for attempt in range(5):
+        c = conn()
+        try:
+            with _GATE:
+                return handle(c, raw)
+        except sqlite3.OperationalError:
+            rollback(c); time.sleep(0.05 * (attempt + 1))
+        finally:
+            close(c)
+    return None

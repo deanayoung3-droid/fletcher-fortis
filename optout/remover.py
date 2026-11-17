@@ -154,24 +154,28 @@ def send_email(c, p, to, subject, body, attach=None, listing_id=None, html=None,
     attach (signed-authorization PDF) is only passed for people with needs_auth, i.e. non-self family members."""
     ok, why = can_send(p)
     cur = c.execute("INSERT INTO outbox(ts,person_id,to_addr,subject,body,state,listing_id,stage,channel,html) VALUES(?,?,?,?,?,?,?,?,?,?)", (now(), p["id"], to, enc(subject), enc(body), "queued", listing_id, stage, channel, enc(html) if html else None))
-    ref = str(cur.lastrowid); subject = f"{subject} {tag(p, ref)}"; rto = reply_to(p)
+    ref = str(cur.lastrowid); c.commit()   # release the write lock before any network
+    subject = f"{subject} {tag(p, ref)}"; rto = reply_to(p)
     attach = attach if p["needs_auth"] else None
-    if DRY: state = "dry_run"
-    elif not ok: state = "blocked: " + why
-    elif PROVIDER == "resend":
-        state = _resend(f"{FROM_NAME} <{FROM_ADDRESS}>", to, rto, subject, body, attach, ref, html)
-        state = "sent" if state.startswith("sent") else state
-    else:
-        pw = os.environ.get(f"GMAIL_APP_PASSWORD_{p['id'].upper()}")
-        if not pw: state = "blocked: no app password in .env"
+    try:
+        if DRY: state = "dry_run"
+        elif not ok: state = "blocked: " + why
+        elif PROVIDER == "resend":
+            state = _resend(f"{FROM_NAME} <{FROM_ADDRESS}>", to, rto, subject, body, attach, ref, html)
+            state = "sent" if state.startswith("sent") else state
         else:
-            m = EmailMessage(); m["From"] = p["email"]; m["To"] = to; m["Subject"] = subject; m["Reply-To"] = rto; m.set_content(body)
-            if attach and os.path.exists(attach):
-                raw = open(attach, "rb").read(); mt, st = _attach_type(attach)
-                m.add_attachment(raw, maintype=mt, subtype=st, filename=_attach_name(attach))
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context()) as s:
-                s.login(p["email"], pw); s.send_message(m)
-            state = "sent"
+            pw = os.environ.get(f"GMAIL_APP_PASSWORD_{p['id'].upper()}")
+            if not pw: state = "blocked: no app password in .env"
+            else:
+                m = EmailMessage(); m["From"] = p["email"]; m["To"] = to; m["Subject"] = subject; m["Reply-To"] = rto; m.set_content(body)
+                if attach and os.path.exists(attach):
+                    raw = open(attach, "rb").read(); mt, st = _attach_type(attach)
+                    m.add_attachment(raw, maintype=mt, subtype=st, filename=_attach_name(attach))
+                with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context()) as s:
+                    s.login(p["email"], pw); s.send_message(m)
+                state = "sent"
+    except Exception as e:
+        state = "error: " + type(e).__name__
     c.execute("UPDATE outbox SET subject=?, state=?, reply_to=? WHERE id=?", (enc(subject), state, rto, ref)); c.commit()
     return state
 

@@ -1,5 +1,6 @@
 """Run: python -m pytest test/test_inbound.py  (no network: link clicks and Resend calls are stubbed)."""
-import os, sys, tempfile, pathlib, importlib, json
+import os, sys, tempfile, pathlib, importlib, json, sqlite3, threading, time
+from concurrent.futures import ThreadPoolExecutor
 T = tempfile.mkdtemp(); ROOT = pathlib.Path(__file__).resolve().parents[1]
 os.environ.update(DB_PATH=f"{T}/t.db", PROFILES_DIR=str(ROOT / "test/profiles"), SCHEDULER="false", DRY_RUN="true",
                   DASHBOARD_PASSWORD="pw", INBOUND_SECRET="s3cret", SEND_PROVIDER="resend", FROM_ADDRESS="privacy@example.com",
@@ -41,6 +42,30 @@ def test_resend_live_payload(monkeypatch):
     assert frm.endswith("<privacy@example.com>") and rto == "privacy+sam@example.com" and att == str(pdf) and f"[FF-sam-{ref}]" in subj
     assert d[2] == "privacy+alex@example.com" and d[5] is None
     c.execute("UPDATE people SET auth_pdf=NULL, send_enabled=0"); c.commit()
+
+def test_healthz_stays_fast_and_inbound_does_not_500_while_the_database_is_locked():
+    """A startup job holding a write lock must not freeze /healthz, and concurrent inbound mail is retried instead of 500."""
+    held, release = threading.Event(), threading.Event()
+    def hold():
+        c = sqlite3.connect(os.environ["DB_PATH"], timeout=5)
+        c.execute("PRAGMA journal_mode=WAL"); c.execute("BEGIN IMMEDIATE")
+        c.execute("INSERT INTO events(ts, kind, detail) VALUES(?,?,?)", ("2026-01-01T00:00:00", "lockprobe", "x"))
+        held.set(); release.wait(5); c.rollback(); c.close()
+    threading.Thread(target=hold, daemon=True).start()
+    assert held.wait(2)
+    t0 = time.time(); hz = TestClient(main.app).get("/healthz")
+    assert hz.status_code == 200 and hz.json()["ok"] is True and time.time() - t0 < 0.5
+    msg = b"From: privacy@spokeo.com\r\nTo: privacy+alex@example.com\r\nSubject: removed\r\n\r\nThis listing has been removed.\r\n"
+    def post(_i):
+        return TestClient(main.app).post("/inbound/email", content=msg, headers={"X-Inbound-Secret": "s3cret"})
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = [pool.submit(post, i) for i in range(4)]
+        time.sleep(0.3)
+        t1 = time.time(); hz2 = TestClient(main.app).get("/healthz")
+        assert hz2.status_code == 200 and time.time() - t1 < 0.5
+        release.set()
+        codes = [f.result(timeout=20).status_code for f in futs]
+    assert 500 not in codes and 200 in codes
 
 def test_webhook_secret():
     assert cli.post("/inbound/email", content=b"x").status_code == 401

@@ -122,7 +122,8 @@ def recompute_history(c, max_days=90):
         while d <= today:
             v = compute(c, pid)["value"] if d == today else compute(c, pid, d.isoformat())["value"]
             c.execute("INSERT INTO score_history(person_id, day, value) VALUES(?,?,?)", (pid, d.isoformat(), v)); n += 1; d += datetime.timedelta(days=1)
-    c.commit(); return n
+        c.commit()   # one person at a time, so a rebuild does not lock out inbound mail
+    return n
 
 def history(c, pid, days=30):
     """[(day, value)] for the last `days` days that have a snapshot."""
