@@ -2,6 +2,11 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.5.5] - 2026-11-17
+
+### Fixed
+- **The intake form opened with no layout in a browser that was not signed in to Cloudflare Access.** Cloudflare lets `/invite/*` and `/inbound/*` through without a login, but the page still loaded its CSS, JavaScript, fonts and favicon from `/static/*`, which Access blocked. Those public assets are now served under `/invite/static/…` (CSS, JS, logo, favicon and fonts only), with the same cache-busting query string. The font files are loaded relative to the stylesheet, so they work from either path. Family invite, thank-you, expired and used-link pages use the same public assets.
+
 ## [1.5.4] - 2026-11-17
 
 ### Changed

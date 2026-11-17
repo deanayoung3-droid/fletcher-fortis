@@ -21,7 +21,14 @@ STATUS = {"candidate": ("Needs review", "amber"), "not_me": ("Not me", "gray"), 
           "manual_check": ("Check manually (site blocked bots)", "purple"), "checked_clear": ("Checked · not listed", "gray")}
 T.env.globals.update(has_auth=remover.has_auth, provider_ready=remover.provider_ready, FROM_ADDRESS=remover.FROM_ADDRESS, ESIGN_STATEMENT=esign.STATEMENT, STATUS=STATUS, DRY=remover.DRY, SITE=remover.SITE, KEY_SOURCE=crypto.KEY_SOURCE, ASSET=db.app_version(),
                     scan_ready=profiles.scan_ready, waiting_intake=profiles.waiting_intake)
-app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Public copies of the front-end assets, under /invite/ so Cloudflare Access bypasses cover them.
+# Only the files public pages actually load; nothing else in the static folder is exposed here.
+INVITE_ASSETS = frozenset({
+    "app.css", "app.js", "theme.js", "favicon.svg", "logo.svg",
+    "fonts/Geist-Variable.woff2", "fonts/GeistMono-Variable.woff2",
+})
 
 def _user(): return CUR.get()
 def _people():
@@ -111,7 +118,7 @@ async def security(r: Request, call_next):
     # used to freeze /healthz because the session lookup ran on the event loop.
     if path == "/healthz":
         return _headers(await call_next(r))
-    if path.startswith("/static/") or path == "/favicon.ico":
+    if path.startswith("/static/") or path.startswith("/invite/static/") or path == "/favicon.ico":
         return _headers(await call_next(r), static=True)
     ok, r.state.cf_identity = cfaccess.check(path, r.headers)   # optional, off by default; never logs anyone in
     if not ok: return _headers(Response("Cloudflare Access login required", 403))
@@ -120,7 +127,7 @@ async def security(r: Request, call_next):
     try:
         public = any(path == p or (p.endswith("/") and path.startswith(p)) for p in PUBLIC)
         if not _HAS_USERS[0]: _HAS_USERS[0] = await asyncio.to_thread(_users_exist)
-        if not _HAS_USERS[0] and not path.startswith(("/setup", "/static/", "/healthz", "/favicon.ico")):   # first run: setup wizard only
+        if not _HAS_USERS[0] and not path.startswith(("/setup", "/static/", "/invite/static/", "/healthz", "/favicon.ico")):   # first run: setup wizard only
             return _headers(RedirectResponse("/setup", 303))
         if r.method == "POST" and not path.startswith(("/inbound/", "/twilio/")):
             o = r.headers.get("origin") or r.headers.get("referer")
@@ -212,6 +219,12 @@ def _rescan(pid, why):
 
 # ---------- login / accounts ----------
 def _safe_next(n): return n if n and n.startswith("/") and not n.startswith("//") and "\\" not in n else "/"
+
+@app.get("/invite/static/{path:path}", include_in_schema=False)
+def invite_static(path: str):
+    if path not in INVITE_ASSETS:
+        raise HTTPException(404)
+    return FileResponse(os.path.join(STATIC_DIR, path))
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(r: Request, next: str = ""):

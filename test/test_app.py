@@ -209,7 +209,7 @@ def test_login_keeps_its_layout(admin):
     rule = css.text.split(".input{", 1)[1].split("}", 1)[0]
     assert "font-size:16px" in rule and "font-display:swap" in css.text
     page = client().get("/login").text
-    assert 'width="21" height="26"' in page and "/static/app.css?v=" in page
+    assert 'width="21" height="26"' in page and "/invite/static/app.css?v=" in page
     home = admin.get("/").text
     assert 'width="21" height="26"' in home and 'width="16" height="16"' in home
 
@@ -232,7 +232,7 @@ def test_inbound_secret_constant_time_and_errors():
     assert c.post("/inbound/email", content=b"From: a@b.c\n\nhi", headers={"x-inbound-secret": "s"}).json()["ok"]
 
 def test_error_page_branded(admin):
-    r = admin.get("/does-not-exist"); assert r.status_code == 404 and "Fletcher Fortis" in r.text and "/static/app.css" in r.text
+    r = admin.get("/does-not-exist"); assert r.status_code == 404 and "Fletcher Fortis" in r.text and "/invite/static/app.css" in r.text
 
 def test_browser_origin_and_referrer_policy():
     # Real browsers send Origin on form posts; same-origin must work, cross-site must be blocked.

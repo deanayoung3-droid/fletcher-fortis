@@ -28,7 +28,7 @@ def q(monkeypatch):
     calls = []; monkeypatch.setattr(scanjobs, "enqueue", lambda pid, why="manual": calls.append((pid, why)) or True); return calls
 
 def test_version():
-    assert open(ROOT / "VERSION").read().strip() == "1.5.4"
+    assert tuple(int(x) for x in open(ROOT / "VERSION").read().strip().split(".")) >= (1, 5, 4)
 
 def test_family_add_still_needs_name_city_email(admin):
     t = csrf(admin, "/add")
