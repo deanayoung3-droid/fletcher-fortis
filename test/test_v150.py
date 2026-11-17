@@ -194,6 +194,6 @@ def test_consent_lock_blocks_removals_until_a_real_authorization(admin, monkeypa
 def test_intake_rate_limit(monkeypatch):
     intake._hits.clear(); intake.POST_LIMIT = 1
     tok, csrf_tok, _e = intake.create(None, "outside")
-    body = {"csrf": csrf_tok, "full_name": "Rate Limit", "typed_name": "Rate Limit", "agree": "yes", "sig": SIG}
+    body = {"csrf": csrf_tok, "full_name": "Rate Limit", "addr_city": "Springfield", "addr_state": "CA", "email": "rate.limit@example.com", "typed_name": "Rate Limit", "agree": "yes", "sig": SIG}
     assert client().post(f"/invite/intake/{tok}", data=body).status_code == 200
     assert client().post(f"/invite/intake/{tok}", data=body).status_code == 429

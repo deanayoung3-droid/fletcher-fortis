@@ -123,8 +123,10 @@ def DELAY(): return int(os.environ.get("SCAN_DELAY_MS", "8000"))
 def queries(site, prof):
     """Every name variant x every current/past city, de-duplicated (templates without {city} collapse), capped per site."""
     out = []
+    places = profiles.places(prof)
+    if not places or not profiles.name_pairs(prof): return []
     for f, l in profiles.name_pairs(prof):
-        for city, st in (profiles.places(prof) or [("", "CA")]):
+        for city, st in places:
             try: u = search_url(site, f, l, city, st)
             except (KeyError, IndexError): return []   # phone/email-only template: not a name search
             if u not in [q[0] for q in out]: out.append((u, f, l))
@@ -328,7 +330,7 @@ async def run_all(only_person=None, progress=None):
     from playwright.async_api import async_playwright
     c = conn(); shots.ensure(c)
     q = "SELECT * FROM people WHERE enabled=1" + (" AND id=?" if only_person else "")   # nosec B608
-    people = [p for p in c.execute(q, ((only_person,) if only_person else ())).fetchall() if p["esign_at"] or (p["auth_pdf"] and p["consent_verified_at"])]   # consent first: e-sign, or a paper authorization that was marked verified
+    people = [p for p in c.execute(q, ((only_person,) if only_person else ())).fetchall() if profiles.scan_ready(p)]   # skip anyone without consent, a first and last name, or a city
     total = len(people) * len(SITES); done = found = errors = 0
     if progress: progress(0, total, 0, 0)
     async with async_playwright() as pw:
