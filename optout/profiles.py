@@ -49,7 +49,7 @@ def full(n): return " ".join(x for x in (n.get("first"), n.get("middle"), n.get(
 
 def legacy_cols(p):
     legal = next((n for n in p["names"] if n["kind"] == "legal"), p["names"][0])
-    cur = next((a for a in p["addresses"] if a.get("current")), p["addresses"][0] if p["addresses"] else {"city": "", "state": "CA"})
+    cur = next((a for a in p["addresses"] if a.get("current")), p["addresses"][0] if p["addresses"] else {"city": "", "state": ""})
     lo, hi = age_range(p)
     return {"full_name": full(legal), "first": " ".join(x for x in (legal["first"], legal.get("middle")) if x), "last": legal["last"],
             "city": cur["city"], "state": cur["state"], "prior_cities": ",".join(dict.fromkeys(a["city"] for a in p["addresses"] if a is not cur and a["city"] and a["city"] != cur["city"])),
@@ -161,7 +161,55 @@ def seed(c, d=os.environ.get("PROFILES_DIR","/config/profiles")):
 
 def new_person(c, pid, prof, needs_auth, circle="family"):
     if circle not in ("family", "outside"): circle = "family"
-    c.execute("INSERT INTO people(id,enabled,needs_auth,state,circle) VALUES(?,1,?,?,?)", (pid, int(needs_auth), "CA", circle)); save(c, pid, prof)
+    c.execute("INSERT INTO people(id,enabled,needs_auth,state,circle) VALUES(?,1,?,?,?)", (pid, int(needs_auth), legacy_cols(prof)["state"] or "", circle)); save(c, pid, prof)
+
+def complete(p):
+    """True when the profile has a first and last name and at least one city, which the scanner needs."""
+    if not p: return False
+    prof = get(p)
+    return bool(name_pairs(prof) and places(prof))
+
+def scan_ready(p):
+    """True when this person can be scanned: signed consent, a searchable name, and a city."""
+    if not complete(p): return False
+    import remover
+    return remover.has_auth(p)
+
+def waiting_intake(p):
+    """True for an outside person who is not yet scannable. They still need to finish the intake form."""
+    import circle
+    return circle.outside(p) and not scan_ready(p)
+
+def draft_outside(full_name, email=""):
+    """Minimal profile for an outside person waiting on intake. A name or nickname is enough; city, state and email are optional."""
+    err = []
+    name = " ".join((full_name or "").split())
+    why = forbidden(name)
+    empty = {"names": [], "addresses": [], "phones": [], "emails": [], "relatives": [], "birth_year": None, "age_min": None, "age_max": None}
+    if why:
+        err.append("Rejected a value in “name”: " + why + ". Never enter SSNs, full birth dates or ID numbers.")
+        return empty, err
+    if not name:
+        err.append("Enter their name or a nickname so you can tell them apart.")
+        return empty, err
+    parts = name.split()
+    if len(name) > 80 or not all(NAME_OK.match(x) for x in parts):
+        err.append("Use letters, spaces, apostrophes and hyphens only, up to 80 characters.")
+        return empty, err
+    if len(parts) == 1:
+        names = [{"kind": "legal", "first": parts[0], "middle": "", "last": ""}]
+    elif len(parts) == 2:
+        names = [{"kind": "legal", "first": parts[0], "middle": "", "last": parts[1]}]
+    else:
+        names = [{"kind": "legal", "first": parts[0], "middle": " ".join(parts[1:-1]), "last": parts[-1]}]
+    emails = []
+    em = (email or "").strip().lower()
+    if em:
+        if not EMAIL_OK.match(em):
+            err.append("That email is not valid. Leave it blank if you will send them an intake link yourself.")
+        else:
+            emails = [em]
+    return {**empty, "names": names, "emails": emails}, err
 
 # Field names the public intake form must refuse. Matched on the key, before any value is stored.
 SENSITIVE_KEY = re.compile(r"(ssn|social|date_?of_?birth|birth_?date|birthdate|birthday|\bdob\b|driver|licen[cs]e|passport|id_?number|tax_?id|national_?id|full_?dob)", re.I)
@@ -170,7 +218,8 @@ def sensitive_key(k):
     return bool(SENSITIVE_KEY.search((k or "").replace("-", "_")))
 
 def intake_profile(form):
-    """Profile from the no-login intake form. Name is required. Previous names, addresses, phones, emails and an age range are optional.
+    """Profile from the no-login intake form. Legal name, current city and state, and an email are required.
+    Previous names, past cities, street, phones, extra emails and an age range are optional.
     Returns (profile, errors). A Social Security number, full date of birth or ID field is rejected and nothing from it is kept.
     This form has no birth-year field and no place to type an SSN, date of birth or ID number."""
     err = []
@@ -209,7 +258,7 @@ def intake_profile(form):
         st = streets[i] if i < len(streets) else ""
         city = cities[i] if i < len(cities) else ""
         state = (states[i] if i < len(states) else "") or ""
-        if not (st or city or state): continue
+        if not (st or city): continue
         state = (state or "CA").upper()
         if not city: err.append("Each address that you start needs a city, or leave the whole row blank."); continue
         if not NAME_OK.match(city): err.append(f"City “{city}”: letters only."); continue
@@ -228,6 +277,8 @@ def intake_profile(form):
         if not v: continue
         if not EMAIL_OK.match(v): err.append(f"Email “{v}” is not valid."); continue
         if v.lower() not in emails: emails.append(v.lower())
+    if not addrs: err.append("Enter your current city and state.")
+    if not emails: err.append("Enter an email address.")
     lo, hi = (g("age_min") or [""])[0], (g("age_max") or [""])[0]
     prof = {"names": names, "addresses": addrs, "phones": phones, "emails": emails, "relatives": [], "birth_year": None, "age_min": None, "age_max": None}
     if lo or hi:

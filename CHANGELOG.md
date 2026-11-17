@@ -2,6 +2,11 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.5.4] - 2026-11-17
+
+### Changed
+- **Adding an outside / managed person only needs a name or nickname.** City, state and email are no longer required on the admin form (family still uses the existing form). After you add them, a private intake link is ready to copy and send yourself. They enter their legal name, current city and state, email, and any past cities, phones and age range, then sign. Scans and removals stay off until that form is completed. The overview and their page show "Waiting on their intake form" instead of an empty location, with the copy and send-link actions.
+
 ## [1.5.3] - 2026-11-17
 
 ### Fixed

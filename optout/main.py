@@ -19,7 +19,8 @@ STATUS = {"candidate": ("Needs review", "amber"), "not_me": ("Not me", "gray"), 
           "pending": ("Pending", "blue"), "needs_human": ("Needs you", "purple"), "confirmed_removed": ("Removed", "green"),
           "reappeared": ("Reappeared", "red"), "blocked_auth": ("Awaiting signed auth", "red"),
           "manual_check": ("Check manually (site blocked bots)", "purple"), "checked_clear": ("Checked · not listed", "gray")}
-T.env.globals.update(has_auth=remover.has_auth, provider_ready=remover.provider_ready, FROM_ADDRESS=remover.FROM_ADDRESS, ESIGN_STATEMENT=esign.STATEMENT, STATUS=STATUS, DRY=remover.DRY, SITE=remover.SITE, KEY_SOURCE=crypto.KEY_SOURCE, ASSET=db.app_version())
+T.env.globals.update(has_auth=remover.has_auth, provider_ready=remover.provider_ready, FROM_ADDRESS=remover.FROM_ADDRESS, ESIGN_STATEMENT=esign.STATEMENT, STATUS=STATUS, DRY=remover.DRY, SITE=remover.SITE, KEY_SOURCE=crypto.KEY_SOURCE, ASSET=db.app_version(),
+                    scan_ready=profiles.scan_ready, waiting_intake=profiles.waiting_intake)
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 def _user(): return CUR.get()
@@ -189,20 +190,24 @@ def _person_for(r, pid):
 FIRST_SCAN = ("new person", "onboarding")
 def consented(p): return remover.has_auth(p)
 CONSENT_MSG = "Waiting for {name} to accept the invite and sign. Nothing will be scanned or removed until then."
+INTAKE_MSG = "Waiting on their intake form. Scans start after they enter their details and sign."
 def _require_consent(p):
     if not consented(p): raise HTTPException(403, CONSENT_MSG.format(name=p["first"] or p["full_name"] or "this person"))
+def _require_scan_ready(p):
+    _require_consent(p)
+    if not profiles.complete(p): raise HTTPException(403, INTAKE_MSG)
 def _autoscan(pid, why):
-    """First scan right after a person finishes onboarding (signed + details). Never before consent."""
+    """First scan right after a person finishes onboarding (signed + details). Never before consent or a city."""
     if config.get("SCAN_ON_CREATE", "true") != "true": return False
     p = C.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
-    if not p or not consented(p): return False
+    if not p or not profiles.scan_ready(p): return False
     if scanjobs.enqueue(pid, why): event(C, "scan_started", why, pid); return True
     return False
 
 def _rescan(pid, why):
     if os.environ.get("SCAN_ON_EDIT", "true") != "true": return
     p = C.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
-    if not p or not consented(p): return
+    if not p or not profiles.scan_ready(p): return
     if scanjobs.enqueue(pid, why): event(C, "scan_started", why, pid)
 
 # ---------- login / accounts ----------
@@ -430,7 +435,7 @@ def person(r: Request, pid: str, f: str = "", saved: str = "", signed: str = "",
     if f and f not in STATUS: f = ""
     q = "SELECT * FROM listings WHERE person_id=?" + (" AND status=?" if f else " AND status NOT IN ('not_me','checked_clear')") + " ORDER BY CASE status WHEN 'reappeared' THEN 0 WHEN 'candidate' THEN 1 ELSE 2 END, COALESCE(score,0) DESC, last_seen DESC"  # nosec B608
     return T.TemplateResponse(r, "person.html", {"p": p, "prof": profiles.get(p), "stats": stats(pid), "f": f, "listings": C.execute(q, (pid, f) if f else (pid,)).fetchall(),
-        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test','intake') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p), "delerr": delerr[:10], "scanjob": scanjobs.progress(pid), "thumbs": shots.thumbs(C, [x["id"] for x in C.execute("SELECT id FROM listings WHERE person_id=?", (pid,)).fetchall()]) if consented(p) else {}, "locked": not consented(p), "lock_msg": ("Sign your authorization to start. Nothing will be scanned or removed until then." if r.state.user["person_id"] == pid else CONSENT_MSG.format(name=p["first"] or p["full_name"])), "intake_link": _intake_url(r, ink), "cerr": cerr[:200], "istate": istate[:40], "paper": bool(p["auth_pdf"]) and intake.paper_ok(p), **_invite_ctx(r, p, inv, ist)})
+        "outbox": C.execute("SELECT * FROM outbox WHERE person_id=? AND COALESCE(channel,'') NOT IN ('onboarding','weekly_test','intake') ORDER BY id DESC LIMIT 8", (pid,)).fetchall(), "account": db.conn().execute("SELECT username, role, last_login FROM users WHERE person_id=?", (pid,)).fetchone(), "saved": bool(saved), "signed": bool(signed), "welcome": bool(welcome), "drop_needed": lifecycle.drop_needed(p), "delerr": delerr[:10], "scanjob": scanjobs.progress(pid), "thumbs": shots.thumbs(C, [x["id"] for x in C.execute("SELECT id FROM listings WHERE person_id=?", (pid,)).fetchall()]) if consented(p) else {}, "locked": not consented(p), "lock_msg": ("Sign your authorization to start. Nothing will be scanned or removed until then." if r.state.user["person_id"] == pid else (INTAKE_MSG if profiles.waiting_intake(p) else CONSENT_MSG.format(name=p["first"] or p["full_name"]))), "intake_link": _intake_url(r, ink), "cerr": cerr[:200], "istate": istate[:40], "paper": bool(p["auth_pdf"]) and intake.paper_ok(p), **_invite_ctx(r, p, inv, ist)})
 
 def _invite_email(pid):
     u = db.conn().execute("SELECT email FROM users WHERE person_id=?", (pid,)).fetchone()
@@ -515,7 +520,7 @@ def bulk(r: Request, pid: str, _=Depends(csrf)):
 
 @app.post("/person/{pid}/scan")
 def scan_now(r: Request, pid: str, _=Depends(csrf)):
-    _require_consent(_person_for(r, pid))
+    _require_scan_ready(_person_for(r, pid))
     if scanjobs.enqueue(pid, "manual"): event(C, "scan_started", "manual", pid)
     return RedirectResponse(f"/person/{pid}?scan=1#scan", 303)
 
@@ -566,28 +571,35 @@ def _next_scan():
 T.env.globals.update(next_scan=_next_scan, pevents=lambda pid, n=14: C.execute("SELECT * FROM events WHERE person_id=? AND kind NOT IN ('scan_finished','scan_result') ORDER BY ts DESC, id DESC LIMIT ?", (pid, n)).fetchall())
 
 @app.get("/add", response_class=HTMLResponse)
-def add_form(r: Request): auth.require_admin(r); return T.TemplateResponse(r, "add.html", {"errors": [], "v": {}, "email_ready": invites.email_ready(), "me_exists": bool(C.execute("SELECT 1 FROM people WHERE id=?", (r.state.user["person_id"],)).fetchone())})
+def add_form(r: Request, relationship: str = ""):
+    auth.require_admin(r)
+    circ = circle.OUTSIDE if relationship == circle.OUTSIDE else circle.FAMILY
+    return T.TemplateResponse(r, "add.html", {"errors": [], "v": {"relationship": circ}, "email_ready": invites.email_ready(), "me_exists": bool(C.execute("SELECT 1 FROM people WHERE id=?", (r.state.user["person_id"],)).fetchone())})
 
 @app.post("/add")
-def add(r: Request, full_name: str = Form(...), city: str = Form(...), state: str = Form("CA"), needs_auth: str = Form("1"), email: str = Form(""), relationship: str = Form("family"), _=Depends(csrf)):
+def add(r: Request, full_name: str = Form(...), city: str = Form(""), state: str = Form("CA"), needs_auth: str = Form("1"), email: str = Form(""), relationship: str = Form("family"), _=Depends(csrf)):
     auth.require_admin(r); parts = full_name.split(); email = email.strip().lower()
     me_pid = r.state.user["person_id"]; is_me = needs_auth == "0"
     circ = circle.FAMILY if is_me or relationship != circle.OUTSIDE else circle.OUTSIDE
-    prof, errors = profiles.validate({"name_kind": ["legal"], "name_first": [" ".join(parts[:-1])], "name_middle": [""], "name_last": [parts[-1] if parts else ""],
-                                      "addr_street": [""], "addr_city": [city], "addr_state": [state], "addr_current": ["0"]})
-    if len(parts) < 2: errors.insert(0, "Enter a first and last name.")
-    if is_me and C.execute("SELECT 1 FROM people WHERE id=?", (me_pid,)).fetchone(): errors.append("Your own profile already exists. Anyone else needs an email so they can accept the invite.")
-    if not is_me and circ == circle.FAMILY and not profiles.EMAIL_OK.match(email): errors.append("Enter their email. They get an invite to set a password and sign before anything is filed.")
-    if not is_me and circ == circle.OUTSIDE and email and not profiles.EMAIL_OK.match(email): errors.append("That email is not valid. Leave it blank if you will send them an intake link yourself.")
+    if circ == circle.OUTSIDE:
+        prof, errors = profiles.draft_outside(full_name, email)
+    else:
+        prof, errors = profiles.validate({"name_kind": ["legal"], "name_first": [" ".join(parts[:-1])], "name_middle": [""], "name_last": [parts[-1] if parts else ""],
+                                          "addr_street": [""], "addr_city": [city], "addr_state": [state], "addr_current": ["0"]})
+        if len(parts) < 2: errors.insert(0, "Enter a first and last name.")
+        if is_me and C.execute("SELECT 1 FROM people WHERE id=?", (me_pid,)).fetchone(): errors.append("Your own profile already exists. Anyone else needs an email so they can accept the invite.")
+        if not is_me and not profiles.EMAIL_OK.match(email): errors.append("Enter their email. They get an invite to set a password and sign before anything is filed.")
+        if email: prof["emails"] = [email]
     if errors: return T.TemplateResponse(r, "add.html", {"errors": errors, "v": {"full_name": full_name, "city": city, "state": state, "email": email, "relationship": circ, "needs_auth": needs_auth}, "email_ready": invites.email_ready(), "me_exists": bool(C.execute("SELECT 1 FROM people WHERE id=?", (me_pid,)).fetchone())}, status_code=400)
     if is_me: pid = me_pid
     else:
-        base = re.sub(r"[^a-z0-9]", "", parts[0].lower())[:24] or "member"; pid = base; i = 2
+        base = re.sub(r"[^a-z0-9]", "", (parts[0] if parts else "").lower())[:24] or "member"; pid = base; i = 2
         while C.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone() or db.conn().execute("SELECT 1 FROM users WHERE username=?", (pid,)).fetchone(): pid = f"{base}{i}"; i += 1
-        if email: prof["emails"] = [email]
     profiles.new_person(C, pid, prof, not is_me, circ); event(C, "person_added", circ, pid)
     if is_me: return RedirectResponse(f"/person/{pid}/profile", 303)
-    if circ == circle.OUTSIDE: return RedirectResponse(f"/person/{pid}?outside=1", 303)
+    if circ == circle.OUTSIDE:
+        tok, _, _ = intake.create(pid, circ)
+        return RedirectResponse(f"/person/{pid}?ink={tok}", 303)
     tok, st = invites.send(pid, email, " ".join(parts[:-1]), r.state.user["username"], str(r.base_url))
     return RedirectResponse(f"/person/{pid}?inv={tok}&ist={st}", 303)
 
