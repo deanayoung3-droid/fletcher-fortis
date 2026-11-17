@@ -2,6 +2,11 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.5.2] - 2026-11-17
+
+### Fixed
+- **The app opened on the error page after an update (ERROR 500, "Something broke").** One person with a blank name, one stored field the key could not read, or a database column the startup migration did not finish adding was enough to take down every signed-in page. Those cases are skipped and logged now, a missing column is added again on the next start (and retried if the database is busy while the container is swapping), and the overview, family page, inbox and Heartbeat load.
+
 ## [1.5.1] - 2026-11-17
 
 ### Fixed

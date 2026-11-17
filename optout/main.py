@@ -29,7 +29,12 @@ def _people():
     if u["role"] == "admin": return C.execute("SELECT * FROM people ORDER BY COALESCE((SELECT 1 FROM users WHERE users.person_id=people.id AND users.role='admin'),0) DESC, rowid").fetchall()
     return C.execute("SELECT * FROM people WHERE id=?", (u["person_id"],)).fetchall()
 def _family_ids():
-    return [r["id"] for r in C.execute("SELECT id FROM people WHERE " + circle.SQL_FAMILY)]
+    """Household ids. If the circle column is missing (a migration that lost the race on startup), everyone stays family."""
+    try: return [r["id"] for r in C.execute("SELECT id FROM people WHERE " + circle.SQL_FAMILY)]
+    except sqlite3.OperationalError:
+        db.migrate(C)
+        try: return [r["id"] for r in C.execute("SELECT id FROM people WHERE " + circle.SQL_FAMILY)]
+        except sqlite3.OperationalError: return [r["id"] for r in C.execute("SELECT id FROM people")]
 def _bound(pid, col="person_id"):
     """SQL fragment for one person, or for the household when the overview is asking for a total."""
     if pid: return f" AND {col}=?", (pid,)
@@ -37,11 +42,17 @@ def _bound(pid, col="person_id"):
     if not ids: return " AND 0", ()
     return f" AND {col} IN ({','.join('?' * len(ids))})", tuple(ids)
 def _nav(outside=False):
-    return [p for p in _people() if circle.outside(p) == bool(outside)]
+    try: return [p for p in _people() if circle.outside(p) == bool(outside)]
+    except sqlite3.OperationalError:
+        logging.getLogger("ff").error("people list failed")
+        return []
 def _queue():
-    ids = [p["id"] for p in _people()]
+    try: ids = [p["id"] for p in _people()]
+    except sqlite3.OperationalError: return []
     if not ids: return []
-    auto = automation.pending(); return [l for l in C.execute(f"SELECT l.*, p.full_name, p.first FROM listings l JOIN people p ON p.id=l.person_id WHERE status IN ('needs_human','manual_check') AND l.person_id IN ({','.join('?'*len(ids))}) ORDER BY l.status, l.id", ids).fetchall() if l["id"] not in auto]  # nosec B608
+    try: auto = automation.pending(); rows = C.execute(f"SELECT l.*, p.full_name, p.first FROM listings l JOIN people p ON p.id=l.person_id WHERE status IN ('needs_human','manual_check') AND l.person_id IN ({','.join('?'*len(ids))}) ORDER BY l.status, l.id", ids).fetchall()  # nosec B608
+    except sqlite3.OperationalError: return []
+    return [l for l in rows if l["id"] not in auto]
 def _csrf_field():
     u = _user(); return Markup(f'<input type="hidden" name="csrf" value="{escape(u["csrf"])}">') if u else Markup("")  # nosec B704
 def _batch_needs(groups):
@@ -144,7 +155,7 @@ async def http_err(r: Request, e: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def crash(r: Request, e: Exception):
-    logging.getLogger("ff").error("unhandled %s on %s", type(e).__name__, r.url.path)
+    logging.getLogger("ff").error("unhandled %s on %s: %s", type(e).__name__, r.url.path, logsafe.scrub(str(e))[:240])
     return _headers(T.TemplateResponse(r, "error.html", {"code": 500, "msg": "Something went wrong on our side. It has been logged."}, status_code=500))
 
 if os.environ.get("TWILIO_ENABLED", "false") == "true": app.include_router(calls.router)
@@ -355,9 +366,11 @@ def _coverage():
     rows = []
     for s_ in scanner.SITES:
         h = dict(s_.get("health") or {}); h.update(live.get(s_["id"]) or {})
-        rows.append({"id": s_["id"], "name": s_.get("name", s_["id"]), "domain": s_.get("domain", ""), "parent": s_.get("parent"), "status": h.get("status", "unchecked"),
+        status = h.get("status") or "unchecked"
+        if status not in HEALTH_LABEL: status = "unchecked"   # a probe result we don't know is "not probed", not a crashed page
+        rows.append({"id": s_["id"], "name": s_.get("name", s_["id"]), "domain": s_.get("domain", ""), "parent": s_.get("parent"), "status": status,
                      "evidence": h.get("evidence", ""), "checked": (h.get("checked") or "")[:10], "search": bool(s_.get("search_url")), "optout": s_.get("optout") or {}, "sources": s_.get("sources", [])})
-    order = list(HEALTH_LABEL); rows.sort(key=lambda r_: (order.index(r_["status"]), r_["parent"] or "~", r_["name"].lower()))
+    order = list(HEALTH_LABEL); rows.sort(key=lambda r_: (order.index(r_["status"]) if r_["status"] in order else len(order), (r_["parent"] or "~"), (r_["name"] or "").lower()))
     cnt = {k: sum(1 for r_ in rows if r_["status"] == k) for k in HEALTH_LABEL}
     return {"rows": rows, "count": cnt, "total": len(rows), "parents": sorted({r_["parent"] for r_ in rows if r_["parent"]})}
 T.env.globals.update(coverage=_coverage, HEALTH_LABEL=HEALTH_LABEL)
@@ -830,7 +843,7 @@ def _needs(show_snoozed=False):
     admin = _user() and _user()["role"] == "admin"; groups = []; hidden = 0
     auto = automation.pending(); solver = automation.solver_on(); robot = {"retrying": 0, "next": ""}
     for p in _people():
-        first = p["first"] or p["full_name"].split()[0]; tasks = []
+        first = _given(p); tasks = []
         def add(key, kind, title, why, actions, site=None):
             nonlocal hidden
             if key in sn and not show_snoozed: hidden += 1; return
@@ -889,7 +902,19 @@ def needs_snooze(r: Request, key: str = Form(...), days: int = Form(7), _=Depend
     if days <= 0: C.execute("DELETE FROM snooze WHERE k=?", (key,))
     else: C.execute("INSERT INTO snooze(k,until) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET until=excluded.until", (key, (datetime.datetime.now() + datetime.timedelta(days=min(days, 90))).isoformat(timespec="seconds")))
     C.commit(); return RedirectResponse("/needs-you", 303)
-T.env.globals.update(auto_estimate=lambda: automation.estimate(C), HUMAN_ONLY=automation.HUMAN_ONLY, needs_count=lambda: sum(len(t) for _, t in _needs()[0]))
+def _given(p):
+    """A first name safe to drop into a sentence. A blank profile must not take the page down."""
+    if not p: return "Someone"
+    first = p.get("first") if hasattr(p, "get") else ""
+    full = p.get("full_name") if hasattr(p, "get") else ""
+    parts = f"{first or ''} {full or ''}".split()
+    return parts[0] if parts else "Someone"
+def _alerts_n():
+    try: return sum(len(t) for _, t in _needs()[0])
+    except Exception as e:
+        logging.getLogger("ff").error("needs list failed: %s", type(e).__name__)
+        return 0
+T.env.globals.update(auto_estimate=lambda: automation.estimate(C), HUMAN_ONLY=automation.HUMAN_ONLY, needs_count=_alerts_n, given=_given)
 
 @app.get("/person/{pid}/authorization.pdf")
 def esign_pdf(r: Request, pid: str):

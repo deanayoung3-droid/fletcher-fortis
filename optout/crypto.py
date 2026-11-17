@@ -3,7 +3,7 @@ Key: FF_DATA_KEY (env) or the file named by FF_DATA_KEY_FILE (default /run/secre
 generate one with:  python -c "import secrets;print(secrets.token_urlsafe(48))"
 If neither is set, a key is generated once into $DATA_DIR/secrets/ff_data_key (0600) and the dashboard shows a warning,
 because a key stored next to the data only protects copies of the database file, not the whole volume."""
-import os, base64, secrets, hashlib
+import os, base64, secrets, hashlib, logging
 from cryptography.hazmat.primitives.ciphers.aead import AESSIV
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
@@ -37,9 +37,16 @@ def enc(v):
     if v is None or v == "" or not isinstance(v, str) or v.startswith(PREFIX): return v
     return PREFIX + base64.urlsafe_b64encode(_SIV.encrypt(v.encode(), None)).decode()
 
+_DEC_LOGGED = [False]
 def dec(v):
+    """Decrypt one field. A value this key cannot read is returned unchanged so one bad cell cannot 500 the page."""
     if isinstance(v, str) and v.startswith(PREFIX):
-        return _SIV.decrypt(base64.urlsafe_b64decode(v[len(PREFIX):]), None).decode()
+        try: return _SIV.decrypt(base64.urlsafe_b64decode(v[len(PREFIX):]), None).decode()
+        except Exception:
+            if not _DEC_LOGGED[0]:
+                _DEC_LOGGED[0] = True
+                logging.getLogger("ff").error("a stored field could not be decrypted; the page will keep going")
+            return v
     return v
 
 def token_hash(t): return hashlib.sha256(t.encode()).hexdigest()

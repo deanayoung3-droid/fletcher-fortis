@@ -117,7 +117,7 @@ def save_paper(pid, filename, data):
 def paper_ok(p):
     """True when a paper file is stored inside the authorization directory."""
     path = p.get("auth_pdf") if p else None
-    if not path or not os.path.isfile(path): return False
+    if not isinstance(path, str) or not path or not os.path.isfile(path): return False
     root = os.path.realpath(esign.auth_dir()); real = os.path.realpath(path)
     return real.startswith(root + os.sep)
 

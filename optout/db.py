@@ -1,4 +1,4 @@
-import sqlite3, os, datetime, re
+import sqlite3, os, datetime, re, time, logging
 from crypto import enc, dec
 DB = __import__("paths").db_path()
 def now(): return datetime.datetime.now().isoformat(timespec="seconds")
@@ -87,6 +87,29 @@ def _older(v, than):
         return tuple(out)
     return tup(v) < tup(than)
 
+def has_col(c, table, name):
+    try: return any(r[1] == name for r in c.execute(f"PRAGMA table_info({table})"))  # nosec B608: table name is ours
+    except sqlite3.OperationalError: return False
+
+def migrate(c):
+    """Add any missing column. A locked database during an image swap is retried; 'duplicate column' means it is already there."""
+    log = logging.getLogger("ff")
+    for t, col in MIGRATE:
+        name = col.split()[0]
+        if has_col(c, t, name): continue
+        for attempt in range(5):
+            try:
+                c.execute(f"ALTER TABLE {t} ADD COLUMN {col}")  # nosec B608: names come from MIGRATE
+                break
+            except sqlite3.OperationalError as e:
+                msg = str(e).lower()
+                if "duplicate column" in msg: break
+                if "locked" in msg and attempt < 4:
+                    time.sleep(0.25 * (attempt + 1)); continue
+                log.error("migration %s.%s failed: %s", t, name, msg.split(":", 1)[0][:80])
+                break
+    return c
+
 def init():
     """Open the DB, back it up when the app version changed since the last start, then apply migrations (idempotent)."""
     existed = os.path.exists(DB); ver = app_version(); old = ver
@@ -95,13 +118,11 @@ def init():
             r = sqlite3.connect(DB); old = r.execute("SELECT v FROM app_meta WHERE k='version'").fetchone(); r.close(); old = old[0] if old else "pre-1.0.0"
         except sqlite3.OperationalError: old = "pre-1.0.0"
         if old != ver: backup(f"{old}-to-{ver}")
-    c = conn(); c.executescript(SCHEMA)
-    for t, col in MIGRATE:
-        try: c.execute(f"ALTER TABLE {t} ADD COLUMN {col}")
-        except sqlite3.OperationalError: pass
+    c = conn(); c.executescript(SCHEMA); migrate(c)
     encrypt_existing(c)
-    c.execute("UPDATE people SET circle='family' WHERE circle IS NULL OR circle=''")
-    if _older(old, "1.5.0"): backfill_v150(c)   # only on the upgrade, so a later upload is not auto-verified on the next start
+    if has_col(c, "people", "circle"):
+        c.execute("UPDATE people SET circle='family' WHERE circle IS NULL OR circle=''")
+    if _older(old, "1.5.0") and has_col(c, "people", "consent_verified_at"): backfill_v150(c)   # only on the upgrade, so a later upload is not auto-verified on the next start
     c.execute("INSERT INTO app_meta(k,v) VALUES('version',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (ver,)); c.commit(); return c
 
 def backfill_v150(c):
@@ -115,6 +136,8 @@ def encrypt_existing(c):
     """One-time migration: encrypt any plaintext PII left from older versions."""
     raw = sqlite3.connect(DB)
     for t, cols in ENCRYPTED.items():
+        cols = [col for col in cols if has_col(raw, t, col)]
+        if not cols: continue
         key = "id" if t != "people" else "id"
         for row in raw.execute(f"SELECT {key},{','.join(cols)} FROM {t}"):  # nosec B608
             vals = list(row[1:])
