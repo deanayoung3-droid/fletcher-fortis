@@ -1,7 +1,7 @@
 {% from "_ui.html" import icon with context %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Authorization · {{APP}}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<script src="/static/theme.js"></script>
-<link rel="stylesheet" href="/static/app.css"></head>
+<script src="/static/theme.js?v={{ASSET}}"></script>
+<link rel="stylesheet" href="/static/app.css?v={{ASSET}}"></head>
 <body class="min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased">
 <div class="max-w-[720px] mx-auto px-4 py-6 sm:py-10">
  <div class="flex items-center gap-3 mb-6"><div class="min-w-0 flex-1"><div class="text-[13px] font-semibold tracking-[-0.02em]">{{APP}}</div>
@@ -65,4 +65,4 @@
 <template id="tpl-addrs"><div data-row class="grid grid-cols-12 gap-2"><input name="addr_street" class="input text-[16px] col-span-12 sm:col-span-5" maxlength="80" placeholder="Street (optional)" aria-label="Street"><input name="addr_city" class="input text-[16px] col-span-7 sm:col-span-4" maxlength="40" placeholder="City" aria-label="City"><input name="addr_state" class="input text-[16px] col-span-3 sm:col-span-2 uppercase" maxlength="2" placeholder="CA" value="CA" aria-label="State"><label class="col-span-2 flex items-center text-[12px] text-stone-500"><input type="radio" name="addr_current" value="0" class="accent-[#1c1b1a]"></label></div></template>
 <template id="tpl-phones"><div data-row class="flex gap-2"><input name="phone" type="tel" class="input text-[16px] font-mono" maxlength="20" placeholder="(555) 555-0100" aria-label="Phone"></div></template>
 <template id="tpl-emails"><div data-row class="flex gap-2"><input name="email" type="email" class="input text-[16px]" maxlength="200" placeholder="you@example.com" aria-label="Email"></div></template>
-<script src="/static/app.js"></script></body></html>
+<script src="/static/app.js?v={{ASSET}}"></script></body></html>

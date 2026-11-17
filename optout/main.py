@@ -1,4 +1,4 @@
-import os, json, secrets, threading, time, asyncio, datetime, re, contextvars, logging
+import os, json, secrets, sqlite3, threading, time, asyncio, datetime, re, contextvars, logging
 from urllib.parse import urlsplit, quote
 from fastapi import FastAPI, Request, Form, UploadFile, File, Depends, HTTPException
 from fastapi.responses import Response, HTMLResponse, RedirectResponse, FileResponse, JSONResponse
@@ -19,7 +19,7 @@ STATUS = {"candidate": ("Needs review", "amber"), "not_me": ("Not me", "gray"), 
           "pending": ("Pending", "blue"), "needs_human": ("Needs you", "purple"), "confirmed_removed": ("Removed", "green"),
           "reappeared": ("Reappeared", "red"), "blocked_auth": ("Awaiting signed auth", "red"),
           "manual_check": ("Check manually (site blocked bots)", "purple"), "checked_clear": ("Checked · not listed", "gray")}
-T.env.globals.update(has_auth=remover.has_auth, provider_ready=remover.provider_ready, FROM_ADDRESS=remover.FROM_ADDRESS, ESIGN_STATEMENT=esign.STATEMENT, STATUS=STATUS, DRY=remover.DRY, SITE=remover.SITE, KEY_SOURCE=crypto.KEY_SOURCE)
+T.env.globals.update(has_auth=remover.has_auth, provider_ready=remover.provider_ready, FROM_ADDRESS=remover.FROM_ADDRESS, ESIGN_STATEMENT=esign.STATEMENT, STATUS=STATUS, DRY=remover.DRY, SITE=remover.SITE, KEY_SOURCE=crypto.KEY_SOURCE, ASSET=db.app_version())
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 def _user(): return CUR.get()
@@ -83,11 +83,18 @@ def _allowed_hosts(r):
 
 @app.middleware("http")
 async def security(r: Request, call_next):
-    ok, r.state.cf_identity = cfaccess.check(r.url.path, r.headers)   # optional, off by default; never logs anyone in
+    path = r.url.path
+    # Styles, scripts and fonts never touch the database. A locked database during login used to
+    # turn /static/app.css into an HTML error page, and the browser then drew the app with no layout.
+    if path.startswith("/static/") or path == "/favicon.ico":
+        return _headers(await call_next(r), static=True)
+    ok, r.state.cf_identity = cfaccess.check(path, r.headers)   # optional, off by default; never logs anyone in
     if not ok: return _headers(Response("Cloudflare Access login required", 403))
-    u = auth.session(r); r.state.user = u; tokv = CUR.set(u)
+    try: u = auth.session(r)
+    except sqlite3.OperationalError: u = None   # a busy database must not turn the page into a 500
+    r.state.user = u; tokv = CUR.set(u)
     try:
-        path = r.url.path; public = any(path == p or (p.endswith("/") and path.startswith(p)) for p in PUBLIC)
+        public = any(path == p or (p.endswith("/") and path.startswith(p)) for p in PUBLIC)
         if not has_users() and not path.startswith(("/setup", "/static/", "/healthz", "/favicon.ico")):   # first run: setup wizard only
             return _headers(RedirectResponse("/setup", 303))
         if r.method == "POST" and not path.startswith(("/inbound/", "/twilio/")):
@@ -102,7 +109,7 @@ async def security(r: Request, call_next):
         return _headers(await call_next(r))
     finally: CUR.reset(tokv)
 
-def _headers(resp):
+def _headers(resp, static=False):
     # Referrer-Policy is same-origin, not no-referrer: with no-referrer Chrome sends "Origin: null" on form posts and the Origin check above rejects them.
     h = resp.headers
     if "frame-ancestors 'self'" in h.get("content-security-policy", ""): h["X-Frame-Options"] = "SAMEORIGIN"   # email preview iframe only (no scripts)
@@ -111,7 +118,12 @@ def _headers(resp):
     h["Referrer-Policy"] = "same-origin"; h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     h["Cross-Origin-Opener-Policy"] = "same-origin"; h["Cross-Origin-Resource-Policy"] = "same-origin"
     if auth.SECURE: h["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
-    if "cache-control" not in h: h["Cache-Control"] = "no-store"
+    # Pages stay no-store (they hold personal data). Styles, scripts and fonts must be cacheable:
+    # Safari drops a no-store stylesheet after the login redirect, so the page paints with no layout
+    # and the logo SVG (no CSS size) fills the screen. A cached stylesheet also still applies if the
+    # database is busy and a later reload is slow.
+    if static: h["Cache-Control"] = "public, max-age=86400"
+    elif "cache-control" not in h: h["Cache-Control"] = "no-store"
     return resp
 
 async def csrf(r: Request):

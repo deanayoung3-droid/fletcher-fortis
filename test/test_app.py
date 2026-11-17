@@ -200,6 +200,19 @@ def test_screenshot_path_traversal(admin):
     c.execute("UPDATE listings SET screenshot=? WHERE id=?", (os.path.join(scanner.SHOTS, "..", "app.db"), cur.lastrowid)); c.commit()
     assert admin.get(f"/shot/{cur.lastrowid}").status_code == 404
 
+def test_login_keeps_its_layout(admin):
+    """After login the stylesheet must stay cacheable (Safari drops no-store CSS on the redirect and the logo fills the screen),
+    and the mark has a real size so a missed stylesheet cannot blow it up. Inputs are 16px so phones don't zoom and stay zoomed."""
+    css = client().get("/static/app.css")
+    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
+    assert "no-store" not in css.headers.get("cache-control", "") and "max-age=" in css.headers.get("cache-control", "")
+    rule = css.text.split(".input{", 1)[1].split("}", 1)[0]
+    assert "font-size:16px" in rule and "font-display:swap" in css.text
+    page = client().get("/login").text
+    assert 'width="21" height="26"' in page and "/static/app.css?v=" in page
+    home = admin.get("/").text
+    assert 'width="21" height="26"' in home and 'width="16" height="16"' in home
+
 def test_security_headers(admin):
     for r in (admin.get("/person/alex"), client().get("/login"), client().get("/healthz")):
         h = r.headers

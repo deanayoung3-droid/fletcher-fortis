@@ -1,7 +1,7 @@
 {% from "_ui.html" import icon, avatar, pill, label, brand with context %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}Overview{% endblock %} · {{APP}}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<script src="/static/theme.js"></script>
-<link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/static/fonts/GeistMono-Variable.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/static/app.css">{% if BRAND %}<style>.bg-accent-500,.bg-accent-600,.dark .dark\:bg-accent-500{background-color:{{BRAND}}!important}.text-accent-500,.text-accent-600,.stroke-accent-500{color:{{BRAND}}!important;stroke:{{BRAND}}}</style>{% endif %}</head>
+<script src="/static/theme.js?v={{ASSET}}"></script>
+<link rel="preload" href="/static/fonts/Geist-Variable.woff2?v={{ASSET}}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/static/fonts/GeistMono-Variable.woff2?v={{ASSET}}" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/static/app.css?v={{ASSET}}">{% if BRAND %}<style>.bg-accent-500,.bg-accent-600,.dark .dark\:bg-accent-500{background-color:{{BRAND}}!important}.text-accent-500,.text-accent-600,.stroke-accent-500{color:{{BRAND}}!important;stroke:{{BRAND}}}</style>{% endif %}</head>
 <body class="min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased">
 {% set q = hq() %}{% set fam = fam_list() %}{% set U = me() %}{% set admin = U and U.role == 'admin' %}{% set ns = namespace(n=q|length) %}{% for m in fam %}{% set ns.n = ns.n + pstats(m.id).get('reappeared',0) %}{% endfor %}{% set alerts_n = needs_count() if U else 0 %}
 <div class="flex min-h-screen bg-shell dark:bg-black overflow-x-clip">
@@ -52,4 +52,4 @@
   <div class="relative flex-1 min-h-0 overflow-auto grid place-items-center" data-lb-wrap><img data-lb-img alt="" class="max-w-full max-h-full object-contain cursor-zoom-in select-none"></div>
   <button type="button" class="absolute left-3 top-1/2 btn-icon !w-11 !h-11 !bg-white/10 !text-white" data-lb-prev aria-label="Previous">{{icon('back')}}</button>
   <button type="button" class="absolute right-3 top-1/2 btn-icon !w-11 !h-11 !bg-white/10 !text-white" data-lb-next aria-label="Next">{{icon('chev')}}</button></div></dialog>
-<script src="/static/app.js"></script></body></html>
+<script src="/static/app.js?v={{ASSET}}"></script></body></html>

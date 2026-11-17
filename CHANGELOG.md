@@ -2,6 +2,11 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.5.1] - 2026-11-17
+
+### Fixed
+- **The app sometimes opened with no layout after login, and nothing could be saved.** Safari drops a stylesheet marked `no-store` on the redirect that follows sign-in, so the page drew without CSS and the logo (an SVG with no size of its own) filled the screen. Styles, scripts and fonts are cached now, and they are served without touching the database, so a busy database can no longer replace the stylesheet with an error page. The logo and icons have a real size even if the stylesheet is missing, and form fields are 16px so a phone does not zoom in on them and stay there.
+
 ## [1.5.0] - 2026-11-17
 
 ### Added

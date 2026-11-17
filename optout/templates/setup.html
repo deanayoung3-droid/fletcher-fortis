@@ -1,5 +1,5 @@
 {% from "_ui.html" import icon, brand with context %}{% macro why(text) %}<details class="mt-3 group text-[12.5px] text-stone-500"><summary class="cursor-pointer select-none inline-flex items-center gap-1 hover:text-ink dark:hover:text-white">Why?</summary><p class="mt-1.5 max-w-[520px] leading-relaxed">{{text}}</p></details>{% endmacro %}{% macro card(n, title) %}<li class="rounded-2xl ring-1 ring-stone-200/80 dark:ring-white/10 p-4 sm:p-5 flex gap-3.5"><span class="w-7 h-7 shrink-0 rounded-full bg-stone-100 dark:bg-white/10 grid place-items-center text-[12px] font-semibold font-mono">{{n}}</span><div class="flex-1 min-w-0 text-[13.5px] text-stone-600 dark:text-neutral-300 leading-relaxed"><div class="text-[14.5px] font-medium text-ink dark:text-white mb-1">{{title}}</div>{{caller()}}</div></li>{% endmacro %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Set up · {{APP}}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<script src="/static/theme.js"></script><link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/static/app.css"></head>
+<script src="/static/theme.js?v={{ASSET}}"></script><link rel="preload" href="/static/fonts/Geist-Variable.woff2?v={{ASSET}}" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/static/app.css?v={{ASSET}}"></head>
 <body class="min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased">
 {% set cur = steps[step-1] %}{% set skipped = st.get('skipped', []) %}{% set optional = cur[2] %}
 <div class="mx-auto w-full max-w-[1040px] px-4 sm:px-6 py-6 sm:py-10">
@@ -189,4 +189,4 @@
  </div></div>
  <div class="flex items-center justify-center gap-2 py-4 text-[12px] text-stone-500"><button type="button" data-action="theme" class="hover:text-ink dark:hover:text-white">Theme</button></div>
 </div>
-<script src="/static/app.js"></script></body></html>
+<script src="/static/app.js?v={{ASSET}}"></script></body></html>
