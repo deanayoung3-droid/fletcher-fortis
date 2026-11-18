@@ -2,6 +2,11 @@
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): MAJOR for changes that need manual steps, MINOR for features, PATCH for fixes. Database migrations always run automatically on start, after a backup.
 
+## [1.5.6] - 2026-11-17
+
+### Fixed
+- **The intake form's Cities and addresses section overflowed on a phone.** The street, city, state, current-address radio and remove button sat in a 12-column grid that could not wrap, so fields were clipped and some boxes had no visible label. Address rows now stack as cards on a narrow screen (labeled Street, City, then State next to a "Current address" toggle, plus a 44px remove button when there is more than one place) and stay a tidy grid from a tablet up. Every field on the public form has a visible label or placeholder, inputs are 16px and at least 44px tall so iOS does not zoom, and add/remove/submit/theme controls meet the same target. The same pass covers previous names, phones, emails, the consent text, the e-sign pad on touch screens (including a disabled "Signing…" submit), the thank-you page, and the expired, used, invalid and rate-limited link pages. A missing intake link now uses the same public closed page instead of a dashboard error. The add-outside form no longer flashes city and state: a layout class had been overriding the hidden row. An automated test fails if a public page overflows horizontally at 375px or has an empty or unlabeled form control.
+
 ## [1.5.5] - 2026-11-17
 
 ### Fixed

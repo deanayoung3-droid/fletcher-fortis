@@ -1,68 +1,135 @@
-{% from "_ui.html" import icon with context %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Authorization · {{APP}}</title><link rel="icon" href="/invite/static/favicon.svg" type="image/svg+xml">
+{% from "_ui.html" import icon, brand with context %}
+{% set posted_name = posted.full_name[0] if posted.get('full_name') else '' %}
+{% set name_val = posted_name or (p.full_name if p else '') %}
+{% set rows = [] %}
+{% if posted.get('addr_city') %}{% for city in posted.addr_city %}{% set _ = rows.append({'street': posted.addr_street[loop.index0] if posted.addr_street|length > loop.index0 else '', 'city': city, 'state': posted.addr_state[loop.index0] if posted.addr_state|length > loop.index0 else 'CA', 'current': (posted.addr_current[0] if posted.addr_current else '0') == (loop.index0|string)}) %}{% endfor %}
+{% elif prof and prof.addresses %}{% for a in prof.addresses %}{% set _ = rows.append(a) %}{% endfor %}{% endif %}
+{% if not rows %}{% set _ = rows.append({'street':'','city':'','state':'CA','current':True}) %}{% endif %}
+{% set prevs = [] %}
+{% if posted.get('prev_name') %}{% for n in posted.prev_name %}{% if n %}{% set _ = prevs.append(n) %}{% endif %}{% endfor %}
+{% elif p and prof %}{% for n in prof.names %}{% if n.kind != 'legal' %}{% set _ = prevs.append(fullname(n)) %}{% endif %}{% endfor %}{% endif %}
+{% if not prevs %}{% set _ = prevs.append('') %}{% endif %}
+{% set phones = posted.phone if posted.get('phone') else ((prof.phones if prof else []) or ['']) %}
+{% set emails = posted.email if posted.get('email') else ((prof.emails if prof else []) or ['']) %}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your details · {{APP}}</title><link rel="icon" href="/invite/static/favicon.svg" type="image/svg+xml">
 <script src="/invite/static/theme.js?v={{ASSET}}"></script>
-<link rel="preload" href="/invite/static/fonts/Geist-Variable.woff2?v={{ASSET}}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/invite/static/fonts/GeistMono-Variable.woff2?v={{ASSET}}" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/invite/static/app.css?v={{ASSET}}"></head>
-<body class="min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased">
-<div class="max-w-[720px] mx-auto px-4 py-6 sm:py-10">
- <div class="flex items-center gap-3 mb-6"><div class="min-w-0 flex-1"><div class="text-[13px] font-semibold tracking-[-0.02em]">{{APP}}</div>
-  <h1 class="text-[32px] sm:text-[40px] leading-[1.05] font-medium tracking-[-0.045em] mt-1">Your details and signature</h1>
-  <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2">No account and no login. This private link works once. We never ask for a Social Security number, a full date of birth, or a driver's license or other ID number.</p></div>
-  <button type="button" class="btn-icon shrink-0" data-action="theme" aria-label="Toggle dark mode"><span class="dark:hidden">{{icon('moon')}}</span><span class="hidden dark:inline">{{icon('sun')}}</span></button></div>
- {% if error %}<div role="alert" class="mb-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-4 py-3 text-[13.5px] text-rose-700 dark:text-rose-300">{{error}}</div>{% endif %}
- {% set posted_name = posted.full_name[0] if posted.get('full_name') else '' %}
- {% set name_val = posted_name or (p.full_name if p else '') %}
- <form method="post" action="/invite/intake/{{tok}}" class="flex flex-col gap-3" id="intake">
+<link rel="preload" href="/invite/static/fonts/Geist-Variable.woff2?v={{ASSET}}" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/invite/static/fonts/GeistMono-Variable.woff2?v={{ASSET}}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/invite/static/app.css?v={{ASSET}}"></head>
+<body class="invite-flow min-h-screen bg-canvas dark:bg-[#141414] text-ink dark:text-neutral-100 antialiased">
+<header class="invite-header sticky top-0 z-20 backdrop-blur border-b border-stone-200/70 dark:border-white/10">
+ <div class="max-w-[720px] mx-auto px-4 sm:px-6 h-14 flex items-center gap-2.5">{{brand('h-7')}}<span class="text-[15px] font-semibold tracking-[-0.03em] min-w-0 truncate">{{APP}}</span>
+  <button type="button" class="btn-icon ml-auto bg-white dark:bg-neutral-900 ring-1 ring-stone-200 dark:ring-white/10" data-action="theme" aria-label="Toggle theme">{{icon('sun')}}</button></div></header>
+<main class="max-w-[720px] mx-auto px-4 sm:px-6 py-6 sm:py-10">
+ <h1 class="text-[28px] sm:text-[34px] font-medium tracking-[-0.045em] leading-tight break-long">Your details and signature</h1>
+ <p class="text-[14px] text-stone-500 dark:text-neutral-400 mt-2 max-w-[54ch]">Fill this in so {{APP}} can search people-search sites for you and send removal requests as your authorized agent. Current city and state, an email, and a signature are required. We never ask for a Social Security number, a birth date or an ID number. This link works once.</p>
+ {% if error %}<div role="alert" class="mt-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-200 dark:ring-rose-500/20 px-4 py-3 text-[14px] text-rose-700 dark:text-rose-300 flex gap-2 items-start">{{icon('alert','w-4 h-4 mt-0.5 shrink-0')}}<span class="min-w-0 break-long">{{error}}</span></div>{% endif %}
+ <form method="post" class="mt-6 flex flex-col gap-6" data-sigform>
   <input type="hidden" name="csrf" value="{{link_csrf}}">
-  <section class="tile"><div class="card-w p-4 sm:p-5 flex flex-col gap-4">
-   <div><div class="text-[12px] font-mono uppercase tracking-wider text-stone-400">Who you are</div>
-    <label class="flabel mt-3" for="fn">Full legal name</label><input class="input text-[16px]" id="fn" name="full_name" required maxlength="80" autocomplete="name" placeholder="Jordan Rivera" value="{{name_val}}"></div>
-   <div><div class="flex items-end gap-2"><label class="flabel !mb-0">Previous names <span class="text-stone-400 font-normal">optional</span></label><button type="button" class="btn !h-8 ml-auto" data-add-row="prevs">{{icon('plus','w-3.5 h-3.5')}}Add</button></div>
-    <div data-list="prevs" data-max="8" class="flex flex-col gap-2 mt-2">{% for n in (posted.prev_name if posted.get('prev_name') else []) %}{% if n %}<div data-row class="flex gap-2"><input name="prev_name" class="input text-[16px]" maxlength="80" value="{{n}}" placeholder="First Last" aria-label="Previous name"><button type="button" class="btn-icon shrink-0" data-del-row aria-label="Remove previous name">{{icon('trash')}}</button></div>{% endif %}{% endfor %}
-     {% if p and prof and not posted.get('prev_name') %}{% for n in prof.names %}{% if n.kind != 'legal' %}<div data-row class="flex gap-2"><input name="prev_name" class="input text-[16px]" maxlength="80" value="{{fullname(n)}}" placeholder="First Last" aria-label="Previous name"><button type="button" class="btn-icon shrink-0" data-del-row aria-label="Remove previous name">{{icon('trash')}}</button></div>{% endif %}{% endfor %}{% endif %}</div></div>
+  <section class="tile"><div class="card-w p-4 sm:p-6">
+   <h2 class="text-[16px] font-semibold tracking-[-0.03em]">Name</h2>
+   <div class="mt-4"><label class="flabel" for="full_name">Legal name</label>
+    <input class="input" id="full_name" name="full_name" required maxlength="80" autocomplete="name" placeholder="Jordan Rivera" value="{{name_val}}"></div>
+   <div class="mt-4"><div class="flex items-end justify-between gap-3 mb-1.5"><h3 class="text-[13px] font-medium">Previous names <span class="text-stone-400 font-normal">optional</span></h3>
+    <button type="button" class="btn text-[13px]" data-add-row="prevs">{{icon('plus','w-3.5 h-3.5')}}Add a name</button></div>
+    <div data-list="prevs" data-max="8" class="flex flex-col gap-2">{% for n in prevs %}
+     <div data-row class="invite-row"><div class="invite-row-field"><label class="flabel" data-lab="prev-name" for="prev-name-{{loop.index0}}">Previous name</label>
+      <input class="input" data-lab="prev-name" id="prev-name-{{loop.index0}}" name="prev_name" maxlength="80" placeholder="A maiden or other name" value="{{n}}"></div>
+      <button type="button" class="addr-del" data-del-row aria-label="Remove this previous name" {{"hidden" if prevs|length < 2}}>{{icon('trash')}}</button></div>{% endfor %}</div>
+   </div>
   </div></section>
-  <section class="tile"><div class="px-4 pt-4 flex items-start gap-3"><div class="flex-1"><h2 class="text-[15px] font-semibold tracking-[-0.02em]">Cities and addresses</h2><div class="text-[12.5px] text-stone-500">Current city and state are required so the right listings can be found. Past cities and street are optional.</div></div><button type="button" class="btn !h-8" data-add-row="addrs">{{icon('plus','w-3.5 h-3.5')}}Add</button></div>
-   <div class="card-w p-4 flex flex-col gap-2" data-list="addrs" data-max="8">
-    {% set rows = [] %}
-    {% if posted.get('addr_city') %}{% for city in posted.addr_city %}{% set _ = rows.append({'street': posted.addr_street[loop.index0] if posted.addr_street|length > loop.index0 else '', 'city': city, 'state': posted.addr_state[loop.index0] if posted.addr_state|length > loop.index0 else 'CA', 'current': (posted.addr_current[0] if posted.addr_current else '0') == (loop.index0|string)}) %}{% endfor %}
-    {% elif prof and prof.addresses %}{% for a in prof.addresses %}{% set _ = rows.append(a) %}{% endfor %}{% endif %}
-    {% if not rows %}{% set _ = rows.append({'street':'','city':'','state':'CA','current':True}) %}{% endif %}
-    {% for a in rows %}<div data-row class="grid grid-cols-12 gap-2">
-     <input name="addr_street" class="input text-[16px] col-span-12 sm:col-span-5" maxlength="80" placeholder="Street (optional)" value="{{a.street}}" aria-label="Street">
-     <input name="addr_city" class="input text-[16px] col-span-7 sm:col-span-4" maxlength="40" placeholder="City" value="{{a.city}}" aria-label="City" {{ 'required' if loop.first }}>
-     <input name="addr_state" class="input text-[16px] col-span-3 sm:col-span-2 uppercase" maxlength="2" placeholder="CA" value="{{a.state or 'CA'}}" aria-label="State" {{ 'required' if loop.first }}>
-     <label class="col-span-2 flex items-center text-[12px] text-stone-500"><input type="radio" name="addr_current" value="{{loop.index0}}" {{'checked' if a.current}} class="accent-[#1c1b1a]"> <span class="ml-1 hidden sm:inline">Now</span></label></div>{% endfor %}
-   </div></section>
-  <div class="grid sm:grid-cols-2 gap-3">
-   <section class="tile"><div class="px-4 pt-4 flex items-center"><h2 class="text-[15px] font-semibold">Phones <span class="text-stone-400 font-normal text-[13px]">optional</span></h2><button type="button" class="btn !h-8 ml-auto" data-add-row="phones">{{icon('plus','w-3.5 h-3.5')}}Add</button></div>
-    <div class="card-w p-4 flex flex-col gap-2" data-list="phones" data-max="6">{% set phones = posted.phone if posted.get('phone') else ((prof.phones if prof else []) or ['']) %}{% for x in phones %}<div data-row class="flex gap-2"><input name="phone" type="tel" inputmode="tel" class="input text-[16px] font-mono" maxlength="20" placeholder="(555) 555-0100" value="{{fmt_phone(x) if x and x.isdigit() else x}}" aria-label="Phone"></div>{% endfor %}</div></section>
-   <section class="tile"><div class="px-4 pt-4 flex items-center"><h2 class="text-[15px] font-semibold">Email <span class="text-stone-400 font-normal text-[13px]">extra addresses optional</span></h2><button type="button" class="btn !h-8 ml-auto" data-add-row="emails">{{icon('plus','w-3.5 h-3.5')}}Add</button></div>
-    <div class="card-w p-4 flex flex-col gap-2" data-list="emails" data-max="6">{% set emails = posted.email if posted.get('email') else ((prof.emails if prof else []) or ['']) %}{% for x in emails %}<div data-row class="flex gap-2"><input name="email" type="email" class="input text-[16px]" maxlength="200" placeholder="you@example.com" value="{{x}}" aria-label="Email" {{ 'required' if loop.first }}></div>{% endfor %}</div></section>
-  </div>
-  <section class="tile"><div class="card-w p-4 sm:p-5"><h2 class="text-[15px] font-semibold">Age range <span class="text-stone-400 font-normal text-[13px]">optional</span></h2>
-   <p class="text-[12.5px] text-stone-500 mt-0.5">Used only to skip other people with the same name. Not a date of birth.</p>
-   <div class="grid grid-cols-2 gap-3 mt-3"><div><label class="flabel" for="amin">Youngest</label><input class="input text-[16px] font-mono" id="amin" name="age_min" inputmode="numeric" maxlength="3" value="{{posted.age_min[0] if posted.get('age_min') else (prof.age_min if prof and prof.age_min is not none else '')}}"></div>
-    <div><label class="flabel" for="amax">Oldest</label><input class="input text-[16px] font-mono" id="amax" name="age_max" inputmode="numeric" maxlength="3" value="{{posted.age_max[0] if posted.get('age_max') else (prof.age_max if prof and prof.age_max is not none else '')}}"></div></div></div></section>
-  <section class="tile"><div class="card-w p-4 sm:p-5">
-   <div class="text-[12px] font-mono uppercase tracking-wider text-stone-400">Authorization</div>
-   <div class="mt-3 text-[14.5px] leading-relaxed text-stone-700 dark:text-neutral-300 space-y-3">
-    <p>I authorize {{APP}} and the administrator who operates it to act as my authorized agent, to submit requests to delete, to opt out of the sale or sharing of, and to know the personal information that data brokers and people-search sites hold about me, and to receive related correspondence on my behalf.</p>
-    <p class="text-[13px] text-stone-500">This covers Cal. Civ. Code 1798.105, 1798.120 and 1798.135(e), 11 CCR 7063, and comparable state privacy laws. You can revoke it any time by contacting the administrator. It does not authorize any financial transaction. We record your typed name, drawn signature, the time, your IP address and your browser, and store a PDF with your profile.</p></div>
-   <div class="mt-5 pt-5 border-t border-stone-100 dark:border-white/[.07] flex flex-col gap-4">
-    <div><div class="flex items-end mb-1.5"><label class="flabel !mb-0" for="sigpad">Draw your signature</label><button type="button" class="ml-auto text-[12.5px] text-stone-500 underline-offset-2 hover:underline" data-sigclear>Clear</button></div>
+  <section class="tile"><div class="card-w p-4 sm:p-6">
+   <div class="flex items-end justify-between gap-3"><div class="min-w-0"><h2 class="text-[16px] font-semibold tracking-[-0.03em]">Cities and addresses</h2>
+    <p class="text-[12.5px] text-stone-500 mt-1">Current city and state are required. Street and past places are optional, and they help the searches.</p></div>
+    <button type="button" class="btn text-[13px] shrink-0" data-add-row="addrs">{{icon('plus','w-3.5 h-3.5')}}Add a place</button></div>
+   <div data-list="addrs" data-max="8" class="mt-4 flex flex-col gap-3">{% for a in rows %}
+    <div data-row class="addr-card">
+     <div class="addr-field"><label class="flabel" data-lab="addr-street" for="addr-street-{{loop.index0}}">Street <span class="text-stone-400 font-normal">optional</span></label>
+      <input class="input" data-lab="addr-street" id="addr-street-{{loop.index0}}" name="addr_street" maxlength="80" placeholder="123 Main St" value="{{a.street}}" autocomplete="street-address"></div>
+     <div class="addr-field"><label class="flabel" data-lab="addr-city" for="addr-city-{{loop.index0}}">City</label>
+      <input class="input" data-lab="addr-city" id="addr-city-{{loop.index0}}" name="addr_city" maxlength="40" placeholder="Springfield" value="{{a.city}}" autocomplete="address-level2" {{'required' if loop.first}}></div>
+     <div class="addr-card-meta">
+      <div class="addr-field addr-state"><label class="flabel" data-lab="addr-state" for="addr-state-{{loop.index0}}">State</label>
+       <input class="input uppercase" data-lab="addr-state" id="addr-state-{{loop.index0}}" name="addr_state" maxlength="2" placeholder="CA" value="{{a.state or 'CA'}}" autocomplete="address-level1" {{'required' if loop.first}}></div>
+      <div class="addr-field addr-current">
+       <span class="flabel" data-lab="addr-now-lab" id="addr-now-lab-{{loop.index0}}">Current address</span>
+       <label class="addr-current-toggle">
+        <input type="radio" name="addr_current" data-lab="addr-now" id="addr-now-{{loop.index0}}" value="{{loop.index0}}" {{'checked' if a.current}} aria-labelledby="addr-now-lab-{{loop.index0}}">
+        <span class="addr-current-text">This is where I live now</span></label></div>
+      <button type="button" class="addr-del" data-del-row aria-label="Remove this address" {{'hidden' if rows|length < 2}}>{{icon('trash')}}</button>
+     </div>
+    </div>{% endfor %}</div>
+  </div></section>
+  <section class="tile"><div class="card-w p-4 sm:p-6 grid sm:grid-cols-2 gap-6">
+   <div class="min-w-0"><div class="flex items-end justify-between gap-3 mb-1.5"><h2 class="text-[16px] font-semibold tracking-[-0.03em]">Phone numbers <span class="text-stone-400 font-normal text-[12.5px]">optional</span></h2>
+    <button type="button" class="btn text-[13px]" data-add-row="phones">{{icon('plus','w-3.5 h-3.5')}}Add</button></div>
+    <div data-list="phones" data-max="6" class="flex flex-col gap-2">{% for ph in phones %}
+     <div data-row class="invite-row"><div class="invite-row-field"><label class="flabel" data-lab="phone" for="phone-{{loop.index0}}">Phone</label>
+      <input class="input" data-lab="phone" id="phone-{{loop.index0}}" name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="(555) 555-0100" value="{{fmt_phone(ph) if ph and ph.isdigit() else ph}}" autocomplete="tel"></div>
+      <button type="button" class="addr-del" data-del-row aria-label="Remove this phone" {{"hidden" if phones|length < 2}}>{{icon('trash')}}</button></div>{% endfor %}</div></div>
+   <div class="min-w-0"><div class="flex items-end justify-between gap-3 mb-1.5"><h2 class="text-[16px] font-semibold tracking-[-0.03em]">Email</h2>
+    <button type="button" class="btn text-[13px]" data-add-row="emails">{{icon('plus','w-3.5 h-3.5')}}Add</button></div>
+    <p class="text-[12.5px] text-stone-500 -mt-1 mb-2">At least one email is required. Extra addresses are optional.</p>
+    <div data-list="emails" data-max="6" class="flex flex-col gap-2">{% for em in emails %}
+     <div data-row class="invite-row"><div class="invite-row-field"><label class="flabel" data-lab="email" for="email-{{loop.index0}}">Email</label>
+      <input class="input" data-lab="email" id="email-{{loop.index0}}" name="email" type="email" maxlength="200" placeholder="you@example.com" value="{{em}}" autocomplete="email" {{'required' if loop.first}}></div>
+      <button type="button" class="addr-del" data-del-row aria-label="Remove this email" {{'hidden' if emails|length < 2}}>{{icon('trash')}}</button></div>{% endfor %}</div></div>
+  </div></section>
+  <section class="tile"><div class="card-w p-4 sm:p-6">
+   <h2 class="text-[16px] font-semibold tracking-[-0.03em]">Age range <span class="text-stone-400 font-normal">optional</span></h2>
+   <p class="text-[12.5px] text-stone-500 mt-1">A range is enough. We do not ask for a birth date.</p>
+   <div class="age-row mt-4">
+    <div class="min-w-0"><label class="flabel" for="age_min">From</label><input class="input" id="age_min" name="age_min" inputmode="numeric" maxlength="3" placeholder="25" value="{{posted.age_min[0] if posted.get('age_min') else (prof.age_min if prof and prof.age_min is not none else '')}}"></div>
+    <div class="min-w-0"><label class="flabel" for="age_max">To</label><input class="input" id="age_max" name="age_max" inputmode="numeric" maxlength="3" placeholder="34" value="{{posted.age_max[0] if posted.get('age_max') else (prof.age_max if prof and prof.age_max is not none else '')}}"></div>
+   </div>
+  </div></section>
+  <section class="tile"><div class="card-w p-4 sm:p-6">
+   <h2 class="text-[16px] font-semibold tracking-[-0.03em]">Authorization</h2>
+   <div class="mt-3 text-[14px] leading-relaxed text-stone-700 dark:text-neutral-300 space-y-3 break-long">
+    <p>I authorize {{APP}} and the family administrator who operates it to act as my authorized agent to submit requests to delete, to opt out of the sale or sharing of, and to know the personal information that data brokers and people-search websites hold about me, and to receive related correspondence on my behalf.</p>
+    <p class="text-[13px] text-stone-500 dark:text-neutral-400">Covers Cal. Civ. Code 1798.105, 1798.120 and 1798.135(e), 11 CCR 7063 and comparable state laws. You can revoke this at any time. We record your drawn signature, typed name, the time, your IP address and your browser, and generate a PDF letter from it.</p></div>
+   <div class="mt-5 flex flex-col gap-4">
+    <div><div class="flex items-end mb-1.5"><label class="flabel !mb-0" for="sigpad">Draw your signature</label>
+     <button type="button" class="ml-auto text-[13px] min-h-[44px] px-2 text-stone-500 hover:text-ink dark:hover:text-white underline-offset-2 hover:underline" data-sigclear>Clear signature</button></div>
      <div class="relative rounded-2xl ring-1 ring-stone-200 dark:ring-white/10 bg-white dark:bg-neutral-950 overflow-hidden">
-      <canvas id="sigpad" class="block w-full h-[180px] touch-none cursor-crosshair" aria-label="Signature pad"></canvas>
+      <canvas id="sigpad" class="block w-full h-[200px] sm:h-[170px] touch-none cursor-crosshair" aria-label="Signature pad: draw with your finger, pen or mouse" role="img"></canvas>
       <div class="pointer-events-none absolute left-6 right-6 bottom-9 border-b border-dashed border-stone-300 dark:border-white/15"></div>
-      <div class="pointer-events-none absolute left-6 bottom-3 text-[11.5px] text-stone-400" data-sighint>Sign here with your finger or mouse</div></div>
+      <div class="pointer-events-none absolute left-6 right-6 bottom-3 text-[11.5px] text-stone-400" data-sighint>Sign here with your finger or mouse</div></div>
      <input type="hidden" name="sig" id="sig"></div>
-    <div><label class="flabel" for="tn">Type your full legal name</label><input class="input text-[16px]" id="tn" name="typed_name" required maxlength="120" autocomplete="name" value="{{posted.typed_name[0] if posted.get('typed_name') else ''}}" placeholder="Same name as above"></div>
-    <label class="flex items-start gap-3 text-[14px] font-medium cursor-pointer"><input type="checkbox" name="agree" value="yes" required class="mt-1 w-4 h-4 accent-[#1c1b1a] dark:accent-white">{{statement}}.</label>
-    <button class="btn-p w-full sm:w-auto sm:self-end" data-sigsubmit>{{icon('check')}}Sign and submit</button>
-    <p class="text-[12px] text-stone-500 sm:text-right">The time is recorded when this reaches the server. No Social Security number, date of birth or ID number is collected.</p></div>
+    <div class="min-w-0"><label class="flabel" for="tn">Type your full legal name</label>
+     <input class="input" id="tn" name="typed_name" required maxlength="120" autocomplete="name" placeholder="Must match the legal name above" value="{{posted.typed_name[0] if posted.get('typed_name') else ''}}"></div>
+    <label class="consent-row text-[14px] font-medium"><input type="checkbox" name="agree" value="yes" required>{{statement}}.</label>
+    <div class="flex flex-col sm:flex-row sm:justify-end gap-2 pt-1">
+     <button class="btn-p w-full sm:w-auto" data-sigsubmit>{{icon('check')}}Sign and submit</button></div>
+    <p class="text-[12px] text-stone-500 sm:text-right -mt-1">We turn this into a signed PDF automatically. Nothing to print or upload.</p>
+   </div>
   </div></section>
  </form>
-</div>
-<template id="tpl-prevs"><div data-row class="flex gap-2"><input name="prev_name" class="input text-[16px]" maxlength="80" placeholder="First Last" aria-label="Previous name"><button type="button" class="btn-icon shrink-0" data-del-row aria-label="Remove previous name">{{icon('trash')}}</button></div></template>
-<template id="tpl-addrs"><div data-row class="grid grid-cols-12 gap-2"><input name="addr_street" class="input text-[16px] col-span-12 sm:col-span-5" maxlength="80" placeholder="Street (optional)" aria-label="Street"><input name="addr_city" class="input text-[16px] col-span-7 sm:col-span-4" maxlength="40" placeholder="City" aria-label="City"><input name="addr_state" class="input text-[16px] col-span-3 sm:col-span-2 uppercase" maxlength="2" placeholder="CA" value="CA" aria-label="State"><label class="col-span-2 flex items-center text-[12px] text-stone-500"><input type="radio" name="addr_current" value="0" class="accent-[#1c1b1a]"></label></div></template>
-<template id="tpl-phones"><div data-row class="flex gap-2"><input name="phone" type="tel" class="input text-[16px] font-mono" maxlength="20" placeholder="(555) 555-0100" aria-label="Phone"></div></template>
-<template id="tpl-emails"><div data-row class="flex gap-2"><input name="email" type="email" class="input text-[16px]" maxlength="200" placeholder="you@example.com" aria-label="Email"></div></template>
-<script src="/invite/static/app.js?v={{ASSET}}"></script></body></html>
+</main>
+<template id="tpl-prevs"><div data-row class="invite-row"><div class="invite-row-field"><label class="flabel" data-lab="prev-name" for="prev-name-x">Previous name</label>
+ <input class="input" data-lab="prev-name" id="prev-name-x" name="prev_name" maxlength="80" placeholder="A maiden or other name"></div>
+ <button type="button" class="addr-del" data-del-row aria-label="Remove this previous name">{{icon('trash')}}</button></div></template>
+<template id="tpl-addrs"><div data-row class="addr-card">
+ <div class="addr-field"><label class="flabel" data-lab="addr-street" for="addr-street-x">Street <span class="text-stone-400 font-normal">optional</span></label>
+  <input class="input" data-lab="addr-street" id="addr-street-x" name="addr_street" maxlength="80" placeholder="123 Main St" autocomplete="street-address"></div>
+ <div class="addr-field"><label class="flabel" data-lab="addr-city" for="addr-city-x">City</label>
+  <input class="input" data-lab="addr-city" id="addr-city-x" name="addr_city" maxlength="40" placeholder="Springfield" autocomplete="address-level2"></div>
+ <div class="addr-card-meta">
+  <div class="addr-field addr-state"><label class="flabel" data-lab="addr-state" for="addr-state-x">State</label>
+   <input class="input uppercase" data-lab="addr-state" id="addr-state-x" name="addr_state" maxlength="2" placeholder="CA" value="CA" autocomplete="address-level1"></div>
+  <div class="addr-field addr-current">
+   <span class="flabel" data-lab="addr-now-lab" id="addr-now-lab-x">Current address</span>
+   <label class="addr-current-toggle">
+    <input type="radio" name="addr_current" data-lab="addr-now" id="addr-now-x" value="0">
+    <span class="addr-current-text">This is where I live now</span></label></div>
+  <button type="button" class="addr-del" data-del-row aria-label="Remove this address">{{icon('trash')}}</button>
+ </div></div></template>
+<template id="tpl-phones"><div data-row class="invite-row"><div class="invite-row-field"><label class="flabel" data-lab="phone" for="phone-x">Phone</label>
+ <input class="input" data-lab="phone" id="phone-x" name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="(555) 555-0100" autocomplete="tel"></div>
+ <button type="button" class="addr-del" data-del-row aria-label="Remove this phone">{{icon('trash')}}</button></div></template>
+<template id="tpl-emails"><div data-row class="invite-row"><div class="invite-row-field"><label class="flabel" data-lab="email" for="email-x">Email</label>
+ <input class="input" data-lab="email" id="email-x" name="email" type="email" maxlength="200" placeholder="you@example.com" autocomplete="email"></div>
+ <button type="button" class="addr-del" data-del-row aria-label="Remove this email">{{icon('trash')}}</button></div></template>
+<script src="/invite/static/app.js?v={{ASSET}}"></script>
+</body></html>

@@ -15,9 +15,16 @@ document.getElementById('k')?.addEventListener('input',e=>{const v=e.target.valu
 // profile editor: repeatable rows from <template id="tpl-NAME">
 function addRow(name){const list=document.querySelector(`[data-list="${name}"]`),tpl=document.getElementById('tpl-'+name);if(!list||!tpl)return;
   const max=+list.dataset.max||20;if(list.querySelectorAll('[data-row]').length>=max)return;
-  list.appendChild(tpl.content.cloneNode(true));renumber(list);list.querySelector('[data-row]:last-child input:not([type=radio])')?.focus()}
-function renumber(list){if(!list)return;list.querySelectorAll('[data-row]').forEach((r,i)=>r.querySelectorAll('input[type=radio][name=addr_current]').forEach(x=>x.value=i));
-  const n=list.querySelectorAll('[data-row]').length,empty=list.parentElement.querySelector('[data-empty]');if(empty)empty.hidden=n>0}
+  list.appendChild(tpl.content.cloneNode(true));renumber(list);list.querySelector('[data-row]:last-child input:not([type=radio]):not([type=checkbox])')?.focus()}
+function renumber(list){if(!list)return;const kind=list.getAttribute('data-list');
+  list.querySelectorAll('[data-row]').forEach((r,i)=>{
+    r.querySelectorAll('input[type=radio][name=addr_current]').forEach(x=>{x.value=String(i)});
+    r.querySelectorAll('[data-lab]').forEach(el=>{const id=el.getAttribute('data-lab')+'-'+i;if(el.tagName==='LABEL')el.htmlFor=id;else el.id=id});
+    if(kind==='addrs')r.querySelectorAll('input[name=addr_city],input[name=addr_state]').forEach(x=>{x.required=i===0});
+    if(kind==='emails')r.querySelectorAll('input[name=email]').forEach(x=>{x.required=i===0});
+  });
+  const n=list.querySelectorAll('[data-row]').length,empty=list.parentElement&&list.parentElement.querySelector('[data-empty]');if(empty)empty.hidden=n>0;
+  if(kind==='addrs'||kind==='emails'||kind==='prevs'||kind==='phones')list.querySelectorAll('[data-del-row]').forEach(b=>{b.hidden=n<2})}
 document.querySelectorAll('[data-list]').forEach(renumber);
 document.querySelectorAll('main .tile, main .reveal-me').forEach((n,i)=>{n.classList.add('reveal');n.style.setProperty('--i',Math.min(i,12))});
 if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.querySelectorAll('[data-count]').forEach(n=>{const to=+n.dataset.count,t0=performance.now(),d=900;if(!to)return;
@@ -45,7 +52,8 @@ document.querySelectorAll('input[type=tel],input[name=phone]').forEach(t=>{if(t.
  cv.addEventListener('pointermove',e=>{if(!cur)return;e.preventDefault();for(const ev of (e.getCoalescedEvents?e.getCoalescedEvents():[e]))cur.push(pt(ev));redraw()});
  const end=()=>{cur=null};cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);cv.addEventListener('pointerleave',end);
  form.querySelector('[data-sigclear]').addEventListener('click',()=>{strokes=[];redraw()});
- form.addEventListener('submit',e=>{const n=strokes.reduce((a,s)=>a+s.length,0);if(n<8){e.preventDefault();cv.parentElement.classList.add('ring-rose-400','ring-2');if(hint){hint.textContent='Please draw your signature here first';hint.style.opacity=1;hint.classList.add('text-rose-500')}}});
+ form.addEventListener('submit',e=>{const n=strokes.reduce((a,s)=>a+s.length,0);if(n<8){e.preventDefault();cv.parentElement.classList.add('ring-rose-400','ring-2');if(hint){hint.textContent='Please draw your signature here first';hint.style.opacity=1;hint.classList.add('text-rose-500')}return}
+  const btn=form.querySelector('[data-sigsubmit]');if(btn&&!btn.disabled){btn.disabled=true;btn.setAttribute('data-busy','1');btn.setAttribute('aria-busy','true')}});
  window.addEventListener('resize',size);size()})();
 
 /* Heartbeat: turning DRY_RUN off asks for a typed LIVE confirmation. */
