@@ -100,13 +100,13 @@
   <a href="/add?relationship=outside" class="btn !h-8">{{icon('plus','w-3.5 h-3.5')}}Add outside person</a></div>
  <div id="intake-new" class="mx-4 mb-3 rounded-2xl bg-stone-50 dark:bg-white/[.04] ring-1 ring-stone-200/70 dark:ring-white/10 p-3">
   {% if intake_err %}<div role="alert" class="mb-2 text-[12.5px] text-rose-600">{{intake_err}}</div>{% endif %}
-  {% if intake_link %}<div class="mb-3 flex flex-col sm:flex-row sm:items-center gap-2"><div class="min-w-0 flex-1"><div class="text-[13px] font-semibold">{{'Link emailed' if intake_sent == 'sent' else ('Link saved to send later' if intake_sent == 'pending' else 'Private link ready')}}</div><div class="text-[12px] text-stone-500">Single use, expires in 7 days. Nothing was emailed unless you pressed Email the link.</div>
-   <input id="home-ink" readonly class="input mt-1.5 font-mono !h-9 !text-[12px]" value="{{intake_link}}"></div><button type="button" class="btn !h-9" data-copy="home-ink">{{icon('copy')}}<span>Copy</span></button></div>{% endif %}
-  <form method="post" action="/intake/new" class="flex flex-col lg:flex-row lg:items-end gap-2">{{csrf()}}
-   <div class="lg:w-[200px]"><label class="flabel" for="ink-rel">Link for a new person</label><select class="input !h-9" id="ink-rel" name="relationship"><option value="outside">Outside / managed</option><option value="family">Family</option></select></div>
-   <div class="flex-1 min-w-0"><label class="flabel" for="ink-em">Email <span class="text-stone-400 font-normal">only if you press Email</span></label><input class="input !h-9" id="ink-em" name="email" type="email" maxlength="200" placeholder="person@example.com" autocomplete="off"></div>
-   <button class="btn !h-9" name="send" value="">{{icon('link')}}Generate link</button>
-   <button class="btn-p !h-9" name="send" value="1">{{icon('mail')}}Email the link</button></form>
+  {% if intake_link %}<div class="mb-3 flex flex-col sm:flex-row sm:items-center gap-2 min-w-0"><div class="min-w-0 flex-1"><div class="text-[13px] font-semibold">{{'Link emailed' if intake_sent == 'sent' else ('Link saved to send later' if intake_sent == 'pending' else 'Private link ready')}}</div><div class="text-[12px] text-stone-500">Single use, expires in 7 days. Nothing was emailed unless you pressed Email the link.</div>
+   <input id="home-ink" readonly class="input mt-1.5 font-mono !h-11 text-[16px] min-w-0" value="{{intake_link}}"></div><button type="button" class="btn !h-11 shrink-0" data-copy="home-ink">{{icon('copy')}}<span>Copy</span></button></div>{% endif %}
+  <form method="post" action="/intake/new" class="flex flex-col lg:flex-row lg:items-end gap-2 min-w-0">{{csrf()}}
+   <div class="lg:w-[200px]"><label class="flabel" for="ink-rel">Link for a new person</label><select class="input !h-11 text-[16px]" id="ink-rel" name="relationship"><option value="outside">Outside / managed</option><option value="family">Family</option></select></div>
+   <div class="flex-1 min-w-0"><label class="flabel" for="ink-em">Email <span class="text-stone-400 font-normal">only if you press Email</span></label><input class="input !h-11 text-[16px] min-w-0" id="ink-em" name="email" type="email" maxlength="200" placeholder="person@example.com" autocomplete="off"></div>
+   <button class="btn !h-11" name="send" value="">{{icon('link')}}Generate link</button>
+   <button class="btn-p !h-11" name="send" value="1">{{icon('mail')}}Email the link</button></form>
   <p class="text-[11.5px] text-stone-400 mt-1.5">The person opens it with no account. They enter their details and sign. The link dies after one submit.</p></div>
  {% if outside %}
  <div class="px-2 pb-2 overflow-x-auto"><table class="w-full text-[13px] min-w-[640px]">

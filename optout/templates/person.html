@@ -30,21 +30,21 @@
 {% endif %}
 {% if me().role == 'admin' %}
 <section id="intake-link" class="tile mb-3"><div class="card-w p-4 sm:p-5">
- <div class="flex flex-wrap items-start gap-3">
+ <div class="flex flex-col sm:flex-row sm:flex-wrap items-start gap-3">
   <span class="w-9 h-9 rounded-full bg-stone-100 dark:bg-white/[.06] grid place-items-center text-stone-500 shrink-0">{{icon('link','w-4 h-4')}}</span>
-  <div class="flex-1 min-w-[220px]"><div class="text-[14px] font-semibold">{% if waiting_intake(p) %}Waiting on their intake form{% else %}Private intake link{% endif %}</div>
+  <div class="flex-1 min-w-0 sm:min-w-[220px]"><div class="text-[14px] font-semibold">{% if waiting_intake(p) %}Waiting on their intake form{% else %}Private intake link{% endif %}</div>
    <p class="text-[12.5px] text-stone-500 mt-0.5">{% if waiting_intake(p) %}Copy the link and send it yourself. They enter their name, city, state, email and the rest, then sign. Scans start after that.{% else %}No account and no login. They open the link, confirm their details and sign.{% endif %} Single use, expires in 7 days. Nothing is emailed unless you press Email the link.</p></div>
-  <form method="post" action="/person/{{p.id}}/circle" class="flex items-center gap-2">{{csrf()}}
+  <form method="post" action="/person/{{p.id}}/circle" class="flex items-center gap-2 w-full sm:w-auto min-w-0">{{csrf()}}
    <label class="sr-only" for="circ-{{p.id}}">Household</label>
-   <select id="circ-{{p.id}}" name="relationship" class="input !h-9 !w-auto"><option value="family" {{'selected' if circle_of(p) == 'family'}}>Family</option><option value="outside" {{'selected' if circle_of(p) == 'outside'}}>Outside / managed</option></select>
-   <button class="btn !h-9">Move</button></form></div>
+   <select id="circ-{{p.id}}" name="relationship" class="input !h-11 !w-auto min-w-0 text-[16px]"><option value="family" {{'selected' if circle_of(p) == 'family'}}>Family</option><option value="outside" {{'selected' if circle_of(p) == 'outside'}}>Outside / managed</option></select>
+   <button class="btn !h-11">Move</button></form></div>
  {% if cerr %}<div role="alert" class="mt-3 text-[12.5px] text-rose-600">{{cerr}}</div>{% endif %}
- {% if intake_link %}<div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-2"><input id="ink" readonly class="input font-mono !h-9 !text-[12px] flex-1" value="{{intake_link}}"><button type="button" class="btn !h-9" data-copy="ink">{{icon('copy')}}<span>Copy</span></button></div>
+ {% if intake_link %}<div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-2 min-w-0"><input id="ink" readonly class="input font-mono !h-11 text-[16px] flex-1 min-w-0" value="{{intake_link}}"><button type="button" class="btn !h-11 shrink-0" data-copy="ink">{{icon('copy')}}<span>Copy</span></button></div>
   <p class="text-[11.5px] text-stone-500 mt-1.5">{{'Emailed.' if istate == 'sent' else ('Not emailed: sending is not set up, so copy the link.' if istate == 'pending' else 'Not emailed. Copy it, or press Email the link.')}}</p>{% endif %}
- <form method="post" action="/person/{{p.id}}/intake-link" class="mt-3 flex flex-col sm:flex-row gap-2 sm:items-center">{{csrf()}}
-  <input class="input !h-9 sm:max-w-[280px]" name="email" type="email" maxlength="200" placeholder="Their email (blank uses the saved one)" aria-label="Email the link to">
-  <button class="btn !h-9" name="send" value="">{{icon('link')}}Generate link</button>
-  <button class="btn-p !h-9" name="send" value="1">{{icon('mail')}}Email the link</button></form>
+ <form method="post" action="/person/{{p.id}}/intake-link" class="mt-3 flex flex-col sm:flex-row gap-2 sm:items-center min-w-0">{{csrf()}}
+  <input class="input !h-11 sm:max-w-[280px] min-w-0 text-[16px]" name="email" type="email" maxlength="200" placeholder="Their email (blank uses the saved one)" aria-label="Email the link to">
+  <button class="btn !h-11" name="send" value="">{{icon('link')}}Generate link</button>
+  <button class="btn-p !h-11" name="send" value="1">{{icon('mail')}}Email the link</button></form>
 </div></section>
 {% endif %}
 {% if not locked %}{% set sj = scanjob or {} %}

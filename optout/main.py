@@ -757,11 +757,16 @@ def intake_new(r: Request, relationship: str = Form("outside"), email: str = For
     return RedirectResponse(f"/?ink={tok}&sent={sent}#intake-new", 303)
 
 def _intake_closed(r, st):
-    msg = "This link was already used. It cannot be opened again." if st == "used" else "This link has expired. Ask for a new one."
-    return T.TemplateResponse(r, "intake_done.html", {"first": "", "closed": msg}, status_code=410)
+    if st == "missing":
+        msg, title, code = "This link is not valid. Ask the person who sent it to you for a new one.", "Link not valid", 404
+    elif st == "used":
+        msg, title, code = "This link was already used. It cannot be opened again.", "Link already used", 410
+    else:
+        msg, title, code = "This link has expired. Ask for a new one.", "Link expired", 410
+    return T.TemplateResponse(r, "intake_done.html", {"first": "", "closed": msg, "closed_title": title}, status_code=code)
 
 def _intake_wait(r):
-    return T.TemplateResponse(r, "intake_done.html", {"first": "", "closed": "Too many attempts from this network. Wait a few minutes and try again."}, status_code=429)
+    return T.TemplateResponse(r, "intake_done.html", {"first": "", "closed": "Too many attempts from this network. Wait a few minutes and try again.", "closed_title": "Try again shortly"}, status_code=429)
 
 _INTAKE_FIELDS = {"full_name", "prev_name", "addr_street", "addr_city", "addr_state", "addr_current", "phone", "email", "age_min", "age_max", "typed_name"}
 def _intake_view(r, tok, row, error=None, posted=None, status=200):
@@ -772,7 +777,6 @@ def _intake_view(r, tok, row, error=None, posted=None, status=200):
 def intake_page(r: Request, tok: str):
     if intake.limited(auth.client_ip(r), "get"): return _intake_wait(r)
     row = intake.fetch(tok); st = intake.state(row)
-    if st == "missing": raise HTTPException(404)
     if st != "ok": return _intake_closed(r, st)
     return _intake_view(r, tok, row)
 
@@ -780,7 +784,6 @@ def intake_page(r: Request, tok: str):
 async def intake_submit(r: Request, tok: str):
     if intake.limited(auth.client_ip(r), "post"): return _intake_wait(r)
     row = intake.fetch(tok); st = intake.state(row)
-    if st == "missing": raise HTTPException(404)
     if st != "ok": return _intake_closed(r, st)
     form = await r.form()
     data = {k: [str(x) for x in form.getlist(k)] for k in form.keys()}

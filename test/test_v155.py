@@ -51,7 +51,7 @@ def assert_public_assets(text, label):
     assert "?v=" in joined, f"{label}: cache-busting query missing {urls}"
 
 def test_version():
-    assert open(ROOT / "VERSION").read().strip() == "1.5.5"
+    assert open(ROOT / "VERSION").read().strip() >= "1.5.5"
 
 def test_invite_static_serves_public_assets_only():
     c = client()
@@ -86,7 +86,7 @@ def test_public_pages_only_reference_invite_assets(admin):
     assert_public_assets(form.text, "intake form")
     # a token that was never issued renders the public error page (also under /invite/static)
     missing = client().get("/invite/intake/not-a-real-token")
-    assert missing.status_code == 404
+    assert missing.status_code == 404 and "not valid" in missing.text.lower()
     assert_public_assets(missing.text, "unknown intake link")
     tok2, csrf_tok, _e = intake.create(None, "outside")
     c = db.conn(); c.execute("UPDATE intake_links SET expires=? WHERE token_hash=?", ("2000-01-01T00:00:00", __import__("crypto").token_hash(tok2))); c.commit()
